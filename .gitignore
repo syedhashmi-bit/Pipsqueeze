@@ -1,0 +1,7 @@
+venv/
+clients/
+keys/
+__pycache__/
+*.pyc
+ip_pool.json
+.env
