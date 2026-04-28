@@ -1,24 +1,24 @@
 # WireGuard VPN Dashboard
 
-A Flask based dashboard for generating WireGuard client configuration files.
+A web based VPN provisioning tool built with Flask.
 
 ## Features
-
-- Generate WireGuard client configs
-- Auto assign VPN client IPs
-- Download generated config files
+- Generate WireGuard client configurations
+- Automatic IP address allocation
+- Downloadable config files
 - Login protected dashboard
-- Deployed using Gunicorn and Nginx
+
+## Deployment
+- Ubuntu VPS
+- Nginx reverse proxy
+- Gunicorn
+- HTTPS with Let's Encrypt
+
+## Live Demo
+https://vpn.syedhashmi.trade
 
 ## Tech Stack
-
-- Python
-- Flask
-- Gunicorn
+- Python (Flask)
 - Nginx
-- Ubuntu VPS
+- Gunicorn
 - WireGuard
-
-## Notes
-
-Generated VPN configs, keys, virtual environment files, and IP pool data are ignored for security.
