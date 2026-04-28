@@ -1,7 +1,23 @@
-venv/
-clients/
-keys/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Virtual environment
+venv/
+
+# App data (DO NOT PUSH)
+clients/
+keys/
+qr_codes/
 ip_pool.json
+
+# Environment variables
 .env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

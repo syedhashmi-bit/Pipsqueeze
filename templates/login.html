@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VPN Dashboard Login</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: radial-gradient(circle at top, #1f3b57, #0f1115 55%);
+            color: white;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-card {
+            width: 410px;
+            background: rgba(30, 30, 30, 0.94);
+            padding: 36px;
+            border-radius: 20px;
+            box-shadow: 0 22px 55px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 8px 12px;
+            border-radius: 30px;
+            background: rgba(76, 175, 80, 0.15);
+            color: #7ee787;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        h2 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        p {
+            color: #b8c0cc;
+            margin-bottom: 22px;
+        }
+
+        label {
+            display: block;
+            text-align: left;
+            color: #c9d1d9;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        input {
+            width: 100%;
+            padding: 13px;
+            margin-bottom: 14px;
+            border-radius: 10px;
+            border: 1px solid #30363d;
+            background: #0d1117;
+            color: white;
+            box-sizing: border-box;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.15);
+        }
+
+        .twofa-box {
+            margin: 18px 0;
+            padding: 18px;
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(46, 160, 67, 0.12), rgba(56, 139, 253, 0.08));
+            border: 1px solid rgba(126, 231, 135, 0.18);
+        }
+
+        .twofa-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            color: #7ee787;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .shield {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: rgba(126, 231, 135, 0.14);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .code-input {
+            text-align: center;
+            font-size: 24px;
+            letter-spacing: 8px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #8b949e;
+            text-align: center;
+        }
+
+        button {
+            width: 100%;
+            padding: 13px;
+            border: none;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #4CAF50, #2ea043);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 6px;
+        }
+
+        button:hover {
+            filter: brightness(1.08);
+        }
+
+        .error {
+            background: rgba(255, 80, 80, 0.12);
+            color: #ff8b8b;
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            font-size: 14px;
+        }
+
+        .footer {
+            margin-top: 18px;
+            font-size: 12px;
+            color: #7d8590;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <div class="badge">WireGuard Access Panel</div>
+
+    <h2>VPN Dashboard</h2>
+    <p>Sign in with your admin credentials and authenticator code.</p>
+
+    {% if error %}
+        <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post">
+        <label>Username</label>
+        <input name="username" placeholder="Enter username" required>
+
+        <label>Password</label>
+        <input name="password" type="password" placeholder="Enter password" required>
+
+        <div class="twofa-box">
+            <div class="twofa-title">
+                <div class="shield">🔐</div>
+                Two factor authentication
+            </div>
+
+            <input
+                class="code-input"
+                name="code"
+                placeholder="000000"
+                inputmode="numeric"
+                maxlength="6"
+                autocomplete="one-time-code"
+                required
+            >
+
+            <div class="hint">
+                Enter the 6 digit code from your authenticator app
+            </div>
+        </div>
+
+        <button type="submit">Sign In</button>
+    </form>
+
+    <div class="footer">
+        Protected admin portal with 2FA
+    </div>
+</div>
+
+</body>
+</html>
