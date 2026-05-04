@@ -14,12 +14,12 @@ PipSqueeze — a self-hosted WireGuard VPN management dashboard, like Tailscale 
 ## Deployment
 
 - **Service**: `vpn-dashboard` (gunicorn systemd unit)
-- **Domain**: `vpn.syedhashmi.trade`
-- **Project path**: `/var/www/vpn-dashboard`
+- **Domain**: `pipsqueeze.syedhashmi.trade`
+- **Project path**: `/var/www/pipsqueeze`
 - **VPS**: Ubuntu 4GB RAM, Hetzner Nuremberg
 - **LAN subnet**: `192.168.88.0/24` (MikroTik home network, router at `192.168.88.1`)
 - **VPN subnet**: `10.10.0.0/24` (clients get `.2` to `.254`)
-- **Python venv**: `/var/www/vpn-dashboard/venv`
+- **Python venv**: `/var/www/pipsqueeze/venv`
 
 ## Service Commands
 
@@ -34,7 +34,7 @@ HTML templates take effect immediately (Jinja2 reloads on request) — no restar
 ## Python Environment
 
 ```bash
-source /var/www/vpn-dashboard/venv/bin/activate
+source /var/www/pipsqueeze/venv/bin/activate
 python app.py                                      # run locally for testing
 pip install <package>                              # install inside venv
 ```
@@ -42,7 +42,7 @@ pip install <package>                              # install inside venv
 ## Git
 
 ```bash
-git remote                                         # origin → git@github.com:syedhashmi-bit/vpn-dashboard.git
+git remote                                         # origin → git@github.com:syedhashmi-bit/pipsqueeze.git
 git push                                           # push to main (SSH key at ~/.ssh/id_ed25519)
 ```
 

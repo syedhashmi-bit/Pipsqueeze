@@ -1,0 +1,17 @@
+{
+  "name": "PipSqueeze",
+  "short_name": "PipSqueeze",
+  "description": "Self-hosted WireGuard VPN management dashboard",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030508",
+  "theme_color": "#00c8ff",
+  "icons": [
+    {
+      "src": "/static/logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

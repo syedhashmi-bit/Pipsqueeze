@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="1254" height="1254" alt="app" src="https://github.com/user-attachments/assets/b790ee14-16e8-432c-982b-ec50f4f67905" />
+  <img width="120" height="120" alt="PipSqueeze" src="https://github.com/user-attachments/assets/b790ee14-16e8-432c-982b-ec50f4f67905" />
 </p>
 
 <h1 align="center">PipSqueeze</h1>
@@ -10,9 +10,9 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/Flask-Web_App-black?logo=flask&logoColor=white" />
+  <img src="https://img.shields.io/badge/Flask-3.x-black?logo=flask&logoColor=white" />
   <img src="https://img.shields.io/badge/WireGuard-VPN-green?logo=wireguard&logoColor=white" />
-  <img src="https://img.shields.io/badge/MikroTik-RouterOS-orange" />
+  <img src="https://img.shields.io/badge/MikroTik-RouterOS_API-orange" />
   <img src="https://img.shields.io/badge/License-MIT-lightgrey" />
 </p>
 
@@ -20,17 +20,19 @@
 
 ## What is PipSqueeze?
 
-PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks directly to your MikroTik router via the RouterOS API. No manual SSH, no CLI commands — create clients, download configs, and monitor your VPN from a browser.
+PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks directly to your MikroTik router via the RouterOS API. No manual SSH, no CLI commands — create clients, download configs, and monitor your VPN from any browser.
 
-- Create WireGuard clients → get a config file + QR code instantly
+**It's like Tailscale, but entirely yours:**
+
+- Create WireGuard clients and get a `.conf` file + QR code instantly
 - Manage peers: enable/disable, rename, clone, bulk actions, expiry dates
-- LAN access modes: **Internet Only / LAN Only / Full Access** per client
+- Three access modes per client: **Internet Only / LAN Only / Full Access**
 - Live peer status with traffic sparklines, ping latency, and 7-day uptime %
 - 2FA login (TOTP), rate limiting, session timeout, IP whitelist
 - Discord / Email / Telegram notifications with per-event toggles
-- Self-serve portal — clients download their own config via a unique link (no login)
+- Self-serve client portal — clients download their own config via a unique link (no login)
 - World map of client locations (Leaflet.js + OpenStreetMap)
-- Weekly usage digest, CSV export, backup ZIP
+- Weekly usage digest, CSV export, full backup ZIP
 
 ---
 
@@ -83,12 +85,13 @@ A background thread polls MikroTik every 30 seconds — recording traffic deltas
 
 Before you begin, make sure you have:
 
-- A **MikroTik router** with a WireGuard interface already configured
-- A **VPS or server** running Ubuntu 20.04 or later (2 GB RAM minimum)
+- A **MikroTik router** (running RouterOS 7.x) with a WireGuard interface already configured
+- A **VPS or server** running Ubuntu 20.04 or later (2 GB RAM minimum recommended)
 - A **domain name** with an A record pointing to your VPS IP
-- **Python 3.10+** (`python3 --version`)
-- **nginx** (`apt install nginx`)
-- **Certbot** for free HTTPS (`apt install certbot python3-certbot-nginx`)
+- **Python 3.10+** on the server (`python3 --version` to check)
+- **nginx** — `apt install nginx`
+- **Certbot** for free HTTPS — `apt install certbot python3-certbot-nginx`
+- **WireGuard tools** on the server — `apt install wireguard-tools`
 
 ---
 
@@ -116,39 +119,54 @@ cp .env.example .env
 nano .env
 ```
 
-Fill in every variable. See the [Configuration Reference](#configuration-reference) table below for details. The most critical ones:
+Fill in every variable. The most critical ones to set before first boot:
 
 | Variable | What to put here |
 |----------|-----------------|
 | `SECRET_KEY` | A long random string — run `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `APP_USERNAME` | Your admin login username |
-| `APP_PASSWORD` | Your admin login password |
-| `TOTP_SECRET` | Generate one in Step 8 |
+| `APP_PASSWORD` | A strong admin password |
+| `TOTP_SECRET` | Generate in Step 8 and come back |
 | `SERVER_PUBLIC_KEY` | Public key of your WireGuard interface on MikroTik |
-| `SERVER_IP` | Your VPS public IP or domain (written into client `.conf` files) |
-| `MT_HOST` | Your MikroTik router's IP address |
-| `MT_USERNAME` | MikroTik API user (see Step 4) |
+| `SERVER_IP` | Your VPS public IP or domain (written into every client `.conf` as the endpoint) |
+| `SERVER_PORT` | WireGuard listen port on MikroTik (usually `51820`) |
+| `CLIENT_DNS` | DNS pushed to VPN clients (e.g. `1.1.1.1` or your router IP) |
+| `MT_HOST` | Your MikroTik router's LAN IP address |
+| `MT_USERNAME` | MikroTik API user (create one in Step 4) |
 | `MT_PASSWORD` | MikroTik API user password |
-| `MT_WIREGUARD_INTERFACE` | Name of your WireGuard interface on MikroTik (e.g. `WireGuard1`) |
+| `MT_WIREGUARD_INTERFACE` | Exact name of the WireGuard interface on MikroTik (e.g. `WireGuard1`) |
+
+See the full [Configuration Reference](#configuration-reference) table for all options.
 
 ### Step 4 — Set up MikroTik
 
-On your MikroTik router:
+On your MikroTik router, do the following. You can use Winbox, WebFig, or the terminal.
 
-1. **Create a WireGuard interface** (if you haven't already):
-   - Winbox → WireGuard → `+` → give it a name (e.g. `WireGuard1`) → set Listen Port (`51820`)
-   - Copy the **Public Key** — you'll need it for `SERVER_PUBLIC_KEY`
+**1. Create a WireGuard interface** (if you haven't already):
 
-2. **Create an API user** with the correct permissions:
-   - Winbox → System → Users → `+`
-   - Set a username (e.g. `api`) and a strong password
-   - Under **Group**, create a new group with policies: `read`, `write`, `api`
-   - Assign the user to that group
+- Winbox → **WireGuard** → click `+`
+- Give it a name (e.g. `WireGuard1`)
+- Set the **Listen Port** to `51820`
+- Click **OK** — RouterOS generates the key pair automatically
+- Open the interface you just created and copy the **Public Key** — you'll need it for `SERVER_PUBLIC_KEY`
 
-3. **Enable the API service**:
-   - Winbox → IP → Services → make sure `api` is enabled (port `8728`)
+**2. Create an API user**:
 
-4. Note down: the interface name, MikroTik IP, API username, API password.
+- Winbox → **System → Users** → click the **Groups** tab → click `+`
+- Name the group (e.g. `api-group`)
+- Under **Policies**, check: `read`, `write`, `api`
+- Click **OK**
+- Now go to the **Users** tab → click `+`
+- Set a username (e.g. `api`) and a strong password
+- Set **Group** to the group you just created
+- Click **OK**
+
+**3. Enable the API service**:
+
+- Winbox → **IP → Services**
+- Find `api` in the list — make sure it is **enabled** and listening on port `8728`
+
+**4. Note down**: interface name, MikroTik LAN IP, API username, API password.
 
 ### Step 5 — Create the systemd service
 
@@ -158,7 +176,7 @@ Create the file `/etc/systemd/system/pipsqueeze.service`:
 nano /etc/systemd/system/pipsqueeze.service
 ```
 
-Paste the following (adjust the `User` if your VPS user is not `root`):
+Paste the following (adjust `User` if your VPS user is not `root`):
 
 ```ini
 [Unit]
@@ -186,7 +204,7 @@ systemctl start pipsqueeze
 systemctl status pipsqueeze
 ```
 
-The app is now running on `127.0.0.1:5000` — nginx will proxy to it.
+The app is now running on `127.0.0.1:5000`. nginx will proxy to it next.
 
 ### Step 6 — Set up nginx
 
@@ -196,7 +214,7 @@ Create a new site config:
 nano /etc/nginx/sites-available/pipsqueeze
 ```
 
-Paste this block, replacing `YOUR_DOMAIN` with your actual domain:
+Paste the block below, replacing `YOUR_DOMAIN` with your actual domain:
 
 ```nginx
 server {
@@ -204,15 +222,16 @@ server {
     server_name YOUR_DOMAIN;
 
     location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass         http://127.0.0.1:5000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
     }
 
     location /static/ {
-        alias /var/www/pipsqueeze/static/;
+        alias   /var/www/pipsqueeze/static/;
         expires 7d;
     }
 
@@ -220,7 +239,7 @@ server {
 }
 ```
 
-Enable it:
+Enable the site and reload nginx:
 
 ```bash
 ln -s /etc/nginx/sites-available/pipsqueeze /etc/nginx/sites-enabled/
@@ -230,18 +249,24 @@ systemctl reload nginx
 
 ### Step 7 — Point your domain and get HTTPS
 
-1. Add an **A record** in your DNS provider pointing `YOUR_DOMAIN` → your VPS IP
+1. In your DNS provider, add an **A record**: `YOUR_DOMAIN` → your VPS IP address
 2. Wait a few minutes for DNS to propagate, then run Certbot:
 
 ```bash
 certbot --nginx -d YOUR_DOMAIN
 ```
 
-Certbot will automatically edit your nginx config and set up auto-renewal. Your dashboard is now at `https://YOUR_DOMAIN`.
+Certbot will automatically update your nginx config and configure auto-renewal. Your dashboard is now accessible at `https://YOUR_DOMAIN`.
+
+Verify auto-renewal is scheduled:
+
+```bash
+systemctl status certbot.timer
+```
 
 ### Step 8 — Set up two-factor authentication (2FA)
 
-PipSqueeze uses TOTP (the same standard as Google Authenticator and Authy).
+PipSqueeze requires TOTP 2FA on every login (same standard as Google Authenticator and Authy).
 
 **Generate a TOTP secret:**
 
@@ -250,13 +275,13 @@ source /var/www/pipsqueeze/venv/bin/activate
 python3 -c "import pyotp; print(pyotp.random_base32())"
 ```
 
-Copy the output (e.g. `JBSWY3DPEHPK3PXP`) and set it in your `.env`:
+Copy the output (it looks like `JBSWY3DPEHPK3PXP`) and add it to your `.env`:
 
 ```
 TOTP_SECRET=JBSWY3DPEHPK3PXP
 ```
 
-**Add to your authenticator app:**
+**Get a QR code to scan into your authenticator app:**
 
 ```bash
 python3 -c "
@@ -269,9 +294,9 @@ print(uri)
 "
 ```
 
-Paste the `otpauth://` URI into [this QR generator](https://www.qr-code-generator.com/) and scan with **Google Authenticator**, **Authy**, or **1Password**. Or just enter the secret manually.
+Paste the `otpauth://` URI into any online QR generator and scan it with **Google Authenticator**, **Authy**, or **1Password**. Alternatively, enter the raw secret manually in your app.
 
-Restart the service after editing `.env`:
+Restart the service to pick up the new `.env` value:
 
 ```bash
 systemctl restart pipsqueeze
@@ -283,9 +308,9 @@ Visit `https://YOUR_DOMAIN` in your browser.
 
 - **Username**: the value you set for `APP_USERNAME`
 - **Password**: the value you set for `APP_PASSWORD`
-- **2FA code**: the 6-digit code from your authenticator app
+- **2FA code**: the current 6-digit code from your authenticator app
 
-You're in. Start adding your first WireGuard clients.
+You're in. Create your first WireGuard client from the dashboard.
 
 ---
 
@@ -295,24 +320,24 @@ All configuration lives in `.env`. Copy `.env.example` to get started.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRET_KEY` | Yes | — | Flask session encryption key. Use a 32+ char random string. |
-| `APP_USERNAME` | Yes | — | Admin login username |
-| `APP_PASSWORD` | Yes | — | Admin login password |
-| `TOTP_SECRET` | Yes | — | Base32 TOTP secret for 2FA (generate with `pyotp.random_base32()`) |
-| `SERVER_PUBLIC_KEY` | Yes | — | WireGuard public key of your MikroTik interface — written into client `.conf` files |
-| `SERVER_IP` | Yes | — | Your VPS public IP or domain — written into client `.conf` files as the endpoint |
-| `SERVER_PORT` | Yes | `51820` | WireGuard listen port on MikroTik |
-| `CLIENT_DNS` | Yes | — | DNS server written into client configs (e.g. `1.1.1.1` or your router IP) |
-| `MT_HOST` | Yes | — | MikroTik router IP address |
-| `MT_USERNAME` | Yes | — | MikroTik API username |
-| `MT_PASSWORD` | Yes | — | MikroTik API password |
-| `MT_PORT` | No | `8728` | MikroTik API port (8728 = unencrypted, 8729 = TLS) |
-| `MT_WIREGUARD_INTERFACE` | Yes | — | WireGuard interface name on MikroTik (e.g. `WireGuard1`) |
-| `MAX_LOGIN_ATTEMPTS` | No | `5` | Failed login attempts before IP lockout |
-| `LOCKOUT_MINUTES` | No | `15` | How long a locked IP stays locked |
-| `SESSION_TIMEOUT_MIN` | No | `30` | Inactivity minutes before session expires |
+| `SECRET_KEY` | **Yes** | — | Flask session encryption key. Use a 32+ char random hex string. |
+| `APP_USERNAME` | **Yes** | — | Admin login username |
+| `APP_PASSWORD` | **Yes** | — | Admin login password |
+| `TOTP_SECRET` | **Yes** | — | Base32 TOTP secret for 2FA (generate with `pyotp.random_base32()`) |
+| `SERVER_PUBLIC_KEY` | **Yes** | — | WireGuard public key of your MikroTik interface — written into every client `.conf` |
+| `SERVER_IP` | **Yes** | — | Your VPS public IP or domain — the `Endpoint` in client configs |
+| `SERVER_PORT` | **Yes** | `51820` | WireGuard UDP listen port on MikroTik |
+| `CLIENT_DNS` | **Yes** | — | DNS server written into client configs (e.g. `1.1.1.1`) |
+| `MT_HOST` | **Yes** | — | MikroTik router LAN IP address |
+| `MT_USERNAME` | **Yes** | — | MikroTik API username |
+| `MT_PASSWORD` | **Yes** | — | MikroTik API password |
+| `MT_PORT` | No | `8728` | MikroTik API port (`8728` = plaintext, `8729` = TLS) |
+| `MT_WIREGUARD_INTERFACE` | **Yes** | — | Exact WireGuard interface name on MikroTik (e.g. `WireGuard1`) |
+| `MAX_LOGIN_ATTEMPTS` | No | `5` | Failed logins before IP lockout |
+| `LOCKOUT_MINUTES` | No | `15` | Lockout duration in minutes |
+| `SESSION_TIMEOUT_MIN` | No | `30` | Inactivity timeout before auto-logout |
 | `IP_WHITELIST` | No | *(allow all)* | Comma-separated IPs allowed to access the dashboard. Blank = no restriction. |
-| `WEEKLY_DIGEST_DAY` | No | `monday` | Day of week to send the weekly digest email (e.g. `monday`, `friday`) |
+| `WEEKLY_DIGEST_DAY` | No | `monday` | Day of the week to send the weekly digest email |
 
 ---
 
@@ -336,19 +361,19 @@ systemctl restart pipsqueeze
 journalctl -u pipsqueeze -n 50 --no-pager
 ```
 
-Look for missing packages (`pip install -r requirements.txt`) or bad `.env` values.
+Look for missing packages (`pip install -r requirements.txt`) or bad `.env` values (missing required keys, syntax errors).
 
 ---
 
 **"Not enough permissions" from MikroTik**
 
-Your MikroTik API user's group policy must include `read`, `write`, and `api`. Check in Winbox → System → Users → Groups.
+Your API user's group policy must include `read`, `write`, and `api`. Check in Winbox → System → Users → Groups.
 
 ---
 
 **2FA code rejected**
 
-Your server clock must be within ~30 seconds of real time. Check:
+TOTP requires your server clock to be within ~30 seconds of real time.
 
 ```bash
 timedatectl status
@@ -364,19 +389,31 @@ timedatectl set-ntp true
 
 **Can't reach the dashboard after install**
 
-1. Check the service is running: `systemctl status pipsqueeze`
-2. Check nginx is running: `systemctl status nginx`
-3. Check nginx config is valid: `nginx -t`
-4. Check your DNS A record has propagated: `dig YOUR_DOMAIN`
-5. Check firewall allows ports 80 and 443: `ufw allow 'Nginx Full'`
+Check each layer in order:
+
+```bash
+systemctl status pipsqueeze        # app running?
+systemctl status nginx             # nginx running?
+nginx -t                           # nginx config valid?
+dig YOUR_DOMAIN                    # DNS propagated?
+ufw allow 'Nginx Full'             # firewall open on 80/443?
+```
 
 ---
 
 **MikroTik API connection refused**
 
-- Confirm the API service is enabled on MikroTik: Winbox → IP → Services → `api` should be enabled
+- Confirm the API service is enabled: Winbox → IP → Services → `api` should show **enabled**
 - Confirm `MT_HOST` is reachable from your VPS: `ping <MT_HOST>`
-- If MikroTik is behind NAT, make sure port `8728` is forwarded
+- If MikroTik is behind NAT, ensure port `8728` is port-forwarded to the router
+
+---
+
+**How to view live logs**
+
+```bash
+journalctl -u pipsqueeze -f
+```
 
 ---
 
@@ -386,10 +423,10 @@ timedatectl set-ntp true
 |-------|-----------|
 | Backend | Python 3.12, Flask, SQLite |
 | Router API | RouterOS-api (MikroTik) |
-| Frontend | Jinja2, Chart.js, Leaflet.js |
-| Auth | pyotp (TOTP 2FA) |
+| Frontend | Jinja2, Chart.js sparklines, Leaflet.js map |
+| Auth | pyotp (TOTP 2FA), rate limiting, session timeout |
 | Server | Gunicorn, Nginx, Ubuntu |
-| Notifications | Discord Webhooks, SMTP, Telegram Bot API |
+| Notifications | Discord Webhooks, SMTP Email, Telegram Bot API |
 
 ---
 

@@ -174,7 +174,7 @@ def send_notification(event: str, message: str, subject: str = None):
             return  # This event type is muted
 
     now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    full = f"[VPN Dashboard] {message}\n{now}"
+    full = f"[PipSqueeze] {message}\n{now}"
     subj = subject or f"VPN Alert: {event.replace('_', ' ').title()}"
 
     results = []
@@ -198,8 +198,8 @@ def send_notification(event: str, message: str, subject: str = None):
 def test_all(settings: dict) -> list[dict]:
     """Send a test message using the provided (unsaved) settings. Returns results."""
     results = []
-    msg  = "This is a test notification from your VPN Dashboard."
-    subj = "VPN Dashboard — Test Notification"
+    msg  = "This is a test notification from your PipSqueeze dashboard."
+    subj = "PipSqueeze — Test Notification"
     now  = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
     if int(settings.get("discord_enabled", 0)) and settings.get("discord_webhook"):

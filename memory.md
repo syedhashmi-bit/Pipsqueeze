@@ -67,6 +67,9 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - [x] IP blocked page (`blocked.html`) with `.env` instructions
 - [x] Notification settings with unsaved-changes guard
 - [x] LAN Access Mode per client — "Internet Only" (0.0.0.0/0), "LAN Only" (192.168.88.0/24), "Full Access" (both); stored as `access_mode` TEXT in clients table; three-button selector in create form and edit modal; badge in client list; shown in portal; clone inherits mode; regen and update_client respect/regenerate mode
+- [x] PipSqueeze logo (`/static/logo.png`) — favicon + apple-touch-icon in all 10 templates; 80px centered above login h1; 32px in index.html topbar brand-row (replaces ⚡ emoji); og-image.png copy at `/static/og-image.png` for social preview
+- [x] PWA manifest (`/static/manifest.json`) — standalone display, cyan theme-color, apple-mobile-web-app meta tags in all 10 templates
+- [x] Project folder renamed from `/var/www/vpn-dashboard` to `/var/www/pipsqueeze`; venv rebuilt (shebang paths); systemd service file updated; CLAUDE.md updated
 
 ---
 

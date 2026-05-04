@@ -488,7 +488,7 @@ def send_weekly_digest():
 
     data    = build_weekly_digest()
     lines   = [
-        f"VPN Dashboard — Weekly Digest ({data['period']})",
+        f"PipSqueeze — Weekly Digest ({data['period']})",
         f"Generated: {data['generated_at']}",
         "",
         f"OVERVIEW",
@@ -516,7 +516,7 @@ def send_weekly_digest():
         lines.append("")
 
     body = "\n".join(lines)
-    notif._send_email(s, "VPN Dashboard — Weekly Digest", body)
+    notif._send_email(s, "PipSqueeze — Weekly Digest", body)
     add_log("Sent weekly digest email")
 
 
