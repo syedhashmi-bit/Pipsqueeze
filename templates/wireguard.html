@@ -327,6 +327,20 @@
                     <tr class="expand-row" id="exp-{{ loop.index }}">
                         <td class="expand-cell" colspan="10">
                             <div class="expand-inner">
+                                {% if peer.endpoint_ip %}
+                                <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(0,200,255,0.07);display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+                                    <div>
+                                        <div class="expand-section-title" style="margin-bottom:5px;">// ENDPOINT</div>
+                                        <span style="font-family:var(--mono);font-size:13px;color:var(--cyan);">{{ peer.endpoint_ip }}</span>
+                                    </div>
+                                    {% if peer.auto_location %}
+                                    <div>
+                                        <div class="expand-section-title" style="margin-bottom:5px;">// DETECTED LOCATION</div>
+                                        <span style="font-family:var(--mono);font-size:13px;color:var(--text);">🌍 {{ peer.auto_location }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
                                 <div class="expand-grid">
                                     <div>
                                         <div class="expand-section-title">// ONLINE/OFFLINE HISTORY</div>

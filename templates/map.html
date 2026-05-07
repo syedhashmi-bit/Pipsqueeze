@@ -96,11 +96,12 @@
 
     <!-- SIDEBAR — always shown, empty state note when no client locations -->
     <div class="sidebar">
+        <div class="no-loc-note" style="font-size:10px;opacity:.7;margin-bottom:6px;">// Locations auto-detected from connection IP. Manual locations set via ⚙ Edit take priority.</div>
         {% if clients %}
             {% for c in clients %}
             <div class="client-card" onclick="flyTo({{ c.lat }}, {{ c.lon }}, '{{ c.name }}')">
                 <div class="card-name">{{ c.name }}</div>
-                {% if c.location %}<div class="card-loc">📍 {{ c.location }}</div>{% endif %}
+                {% if c.location %}<div class="card-loc">{% if c.location_source == 'auto' %}🌍{% else %}📍{% endif %} {{ c.location }}</div>{% endif %}
                 <div class="card-row">
                     {% if not c.disabled %}
                     <span class="badge badge-green">● ONLINE</span>
@@ -194,10 +195,12 @@ clientData.forEach(function(c) {
     var uptimeStr = c.uptime  !== null ? c.uptime + '%' : 'N/A';
     var pingCls   = c.reachable ? 'pop-val-green' : 'pop-val-red';
     var uptimeCls = c.uptime >= 90 ? 'pop-val-green' : (c.uptime >= 70 ? 'pop-val-yellow' : 'pop-val-red');
+    var locIcon   = c.location_source === 'auto' ? '🌍' : '📍';
+    var locSuffix = c.location_source === 'auto' ? ' <span style="opacity:.5;font-size:10px;">(auto)</span>' : '';
 
     marker.bindPopup(
         '<div class="pop-name">' + c.name + '</div>'
-        + (c.location ? '<div style="font-family:var(--mono);font-size:11px;color:#4a6070;margin-bottom:10px;">📍 ' + c.location + '</div>' : '')
+        + (c.location ? '<div style="font-family:var(--mono);font-size:11px;color:#4a6070;margin-bottom:10px;">' + locIcon + ' ' + c.location + locSuffix + '</div>' : '')
         + '<div class="pop-row"><span>IP</span><span class="pop-val" style="color:#00c8ff;">' + c.ip + '</span></div>'
         + '<div class="pop-row"><span>Status</span><span class="' + (c.disabled ? 'pop-val-red' : 'pop-val-green') + '">' + (c.disabled ? 'DISABLED' : 'ENABLED') + '</span></div>'
         + '<div class="pop-row"><span>Latency</span><span class="' + pingCls + '">' + pingStr + '</span></div>'

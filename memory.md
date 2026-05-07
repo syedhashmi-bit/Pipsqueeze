@@ -76,6 +76,7 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - [x] Auto-provision URLs — one-time links that create a WireGuard client on first visit (no login required); `provision_tokens` DB table; `/provision/manage` page; `provision.html` (shows config + QR), `provision_error.html`; inherits tags/access_mode/quota/expiry from token; `notify_provision` toggle; PROVISION button in topbar
 - [x] Multi-user admin accounts — `admin_users` table with bcrypt-hashed passwords + roles (admin/viewer); default admin seeded from .env on first run; login route uses DB; `admin_required` decorator for write routes; USERS button (admin only) in topbar; `/admin/users` management page; role badge in topbar
 - [x] MikroTik firewall rule sync — address-list approach: one DROP rule (`pipsqueeze-lan-block`) blocks "internet" mode clients from LAN; `add_to_lan_block`/`remove_from_lan_block` called on create/delete/toggle/bulk/provision/access_mode change; `sync_firewall_rules()` reconciles on monitor thread first run; firewall rule count in `/api/mt-health` response
+- [x] Automatic IP geolocation — `endpoint-address` captured from MikroTik peers in `get_peers()`; `geolocate_ip(ip)` calls ip-api.com (free, no key, 1000 req/min) with private-IP skip list; `_geo_cache` dict avoids repeat API calls; `_peer_endpoints` dict tracks latest endpoint per client; on peer connect (if no manual location) auto-sets lat/lon/location in DB; wireguard.html expand row shows endpoint IP + detected location; index.html shows 🌍 auto-location for clients without manual location; map_view() falls back to endpoint geo for clients with no DB lat/lon; map popup shows 📍 (manual) vs 🌍 (auto) with "(auto)" label
 
 ---
 
@@ -98,6 +99,7 @@ This file tracks what has been built, what was fixed, and important decisions ma
 | Map page split dark/white, tiles not dark | Replaced OSM + CSS filter with CartoDB Dark Matter tiles natively; removed `.leaflet-tile` filter rule |
 | Map "No locations" overlay blocked map render | Removed full-page absolute overlay; replaced with small sidebar note; map now always renders regardless of client locations |
 | Map server pin was VPS (Nuremberg) not gateway | Replaced hardcoded Nuremberg pin with MikroTik WireGuard gateway pin; location driven by MT_LAT/MT_LON/MT_LOCATION_NAME env vars (default: Hobart, Tasmania); map route passes mt_lat/mt_lon/mt_name/mt_iface to template |
+| endpoint-address not captured from MikroTik | Added endpoint_ip extraction in get_peers() (strips port from "1.2.3.4:51820" format) |
 
 ---
 

@@ -67,6 +67,11 @@ class MikroTikAPI:
             peer["rx"] = peer.get("rx", "0")
             peer["tx"] = peer.get("tx", "0")
 
+            # Endpoint IP — strip port if present ("1.2.3.4:51820" → "1.2.3.4")
+            ep_raw = peer.get("endpoint-address", "")
+            peer["endpoint_address"] = ep_raw
+            peer["endpoint_ip"] = ep_raw.split(":")[0] if ep_raw else ""
+
             # Parse handshake duration properly (e.g. "1h2m30s", "45s")
             if raw_hs:
                 try:

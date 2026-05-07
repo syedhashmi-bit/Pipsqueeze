@@ -615,6 +615,8 @@
                                     </div>
                                     {% endif %}
                                     {% if c.notes %}<div class="client-note">{{ c.notes }}</div>{% endif %}
+                                    {% if c.location %}<div class="client-seen">📍 {{ c.location }}</div>
+                                    {% elif c.name in auto_locations %}<div class="client-seen">🌍 {{ auto_locations[c.name] }} <span style="opacity:.5;">(auto)</span></div>{% endif %}
                                     {% if c.expires_at %}<div class="client-exp">⏳ {{ c.expires_at }}</div>{% endif %}
                                     {% if c.last_seen %}<div class="client-seen">👁 <span class="rel-time" data-ts="{{ c.last_seen }}">{{ c.last_seen }}</span></div>{% endif %}
                                     <div class="client-seen" style="opacity:.5;">🕐 <span class="rel-time" data-ts="{{ c.created_at }}">{{ c.created_at }}</span></div>

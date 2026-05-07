@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 import subprocess, os, re, sqlite3, qrcode, pyotp, shutil
 import secrets, zipfile, threading, time, psutil, csv, io, json
+import urllib.request, urllib.error
 from werkzeug.security import generate_password_hash, check_password_hash
 import notifications as notif
 
@@ -589,6 +590,46 @@ _last_digest_day    = None
 _last_reminder_date = None
 _reminded_today     = set()
 _firewall_synced    = False
+_geo_cache      = {}   # ip -> geo dict or None
+_peer_endpoints = {}   # client_name -> latest endpoint_ip
+
+_PRIVATE_PREFIXES = (
+    ("10.",),
+    ("127.",),
+    ("169.254.",),
+    ("192.168.",),
+    *[(f"172.{i}.",) for i in range(16, 32)],
+)
+
+
+def geolocate_ip(ip):
+    """Return {lat, lon, city, country, region} for a public IP, or None."""
+    if not ip:
+        return None
+    for (prefix,) in _PRIVATE_PREFIXES:
+        if ip.startswith(prefix):
+            return None
+    if ip in _geo_cache:
+        return _geo_cache[ip]
+    try:
+        url = f"http://ip-api.com/json/{ip}?fields=status,lat,lon,city,country,regionName"
+        req = urllib.request.Request(url, headers={"User-Agent": "PipSqueeze/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode())
+        if data.get("status") == "success":
+            result = {
+                "lat":     data["lat"],
+                "lon":     data["lon"],
+                "city":    data.get("city", ""),
+                "country": data.get("country", ""),
+                "region":  data.get("regionName", ""),
+            }
+            _geo_cache[ip] = result
+            return result
+        _geo_cache[ip] = None
+        return None
+    except Exception:
+        return None
 
 
 def _monitor_loop():
@@ -631,6 +672,11 @@ def _monitor_loop():
                 _prev_traffic[name] = (rx, tx)
                 record_traffic(name, rx, tx, delta_rx, delta_tx)
 
+                # Track latest endpoint IP for this peer
+                ep_ip = peer.get("endpoint_ip", "")
+                if ep_ip:
+                    _peer_endpoints[name] = ep_ip
+
                 # Status change events
                 prev = _prev_states.get(name)
                 if prev != status:
@@ -638,6 +684,27 @@ def _monitor_loop():
                         record_event(name, "connected")
                         update_last_seen(name)
                         notif.send_notification("connect", f"Peer '{name}' connected to VPN.")
+                        # Auto-geolocate from endpoint IP if client has no manual location
+                        if ep_ip:
+                            try:
+                                geo = geolocate_ip(ep_ip)
+                                if geo:
+                                    conn_geo = get_db_connection()
+                                    needs_loc = conn_geo.execute(
+                                        "SELECT name FROM clients WHERE name=? AND lat IS NULL",
+                                        (name,)
+                                    ).fetchone()
+                                    if needs_loc:
+                                        loc_str = f"{geo['city']}, {geo['country']}"
+                                        conn_geo.execute(
+                                            "UPDATE clients SET lat=?, lon=?, location=? WHERE name=?",
+                                            (geo["lat"], geo["lon"], loc_str, name)
+                                        )
+                                        conn_geo.commit()
+                                        add_log(f"Auto-located {name} → {loc_str} from endpoint {ep_ip}")
+                                    conn_geo.close()
+                            except Exception:
+                                pass
                     elif prev == "Online":
                         record_event(name, "disconnected")
                         notif.send_notification("disconnect", f"Peer '{name}' disconnected from VPN.")
@@ -1060,6 +1127,16 @@ PersistentKeepalive = 25
     search = request.args.get("search", "").strip() or None
 
     clients, total_clients = get_clients(page=page, tag=tag, search=search)
+
+    # Auto-location fallback for clients with no manual lat/lon (cache-only, no network on miss)
+    auto_locations = {}
+    for c in clients:
+        if c["lat"] is None and c["lon"] is None:
+            ep_ip = _peer_endpoints.get(c["name"])
+            if ep_ip and ep_ip in _geo_cache and _geo_cache[ep_ip]:
+                g = _geo_cache[ep_ip]
+                auto_locations[c["name"]] = f"{g['city']}, {g['country']}"
+
     all_count = get_db_connection().execute("SELECT COUNT(*) FROM clients").fetchone()[0]
     used_ips  = all_count
     available = 253 - used_ips
@@ -1110,6 +1187,7 @@ PersistentKeepalive = 25
         all_tags=all_tags, active_tag=tag,
         search=search or "", page=page, total_pages=total_pages,
         expiring_soon=expiring_soon,
+        auto_locations=auto_locations,
         config_session_timeout=SESSION_TIMEOUT_MIN)
 
 
@@ -1507,32 +1585,50 @@ def weekly_report():
 @app.route("/map")
 @login_required
 def map_view():
-    """World map showing client locations."""
+    """World map showing client locations (manual + endpoint-based fallback)."""
     conn = get_db_connection()
-    clients = conn.execute(
+    all_clients = conn.execute(
         "SELECT name, ip, location, lat, lon, disabled, last_seen, total_rx, total_tx "
-        "FROM clients WHERE lat IS NOT NULL AND lon IS NOT NULL"
+        "FROM clients"
     ).fetchall()
     conn.close()
 
-    # Attach latest ping and uptime to each client
     map_clients = []
-    for c in clients:
-        ping  = get_latest_ping(c["name"])
-        uptm  = get_uptime_percent(c["name"])
+    for c in all_clients:
+        lat, lon  = c["lat"], c["lon"]
+        location  = c["location"] or ""
+        loc_source = "manual"
+
+        if lat is None or lon is None:
+            # Fallback: geolocate from last known endpoint IP
+            ep_ip = _peer_endpoints.get(c["name"])
+            if ep_ip:
+                geo = geolocate_ip(ep_ip)
+                if geo:
+                    lat, lon   = geo["lat"], geo["lon"]
+                    loc_source = "auto"
+                    if not location:
+                        location = f"{geo['city']}, {geo['country']}"
+
+        if lat is None or lon is None:
+            continue  # no location at all — skip
+
+        ping = get_latest_ping(c["name"])
+        uptm = get_uptime_percent(c["name"])
         map_clients.append({
-            "name":     c["name"],
-            "ip":       c["ip"],
-            "location": c["location"] or "",
-            "lat":      c["lat"],
-            "lon":      c["lon"],
-            "disabled": bool(c["disabled"]),
-            "last_seen":c["last_seen"] or "",
-            "total_rx": fmt_bytes(c["total_rx"]),
-            "total_tx": fmt_bytes(c["total_tx"]),
-            "ping_ms":  ping["latency_ms"] if ping else None,
-            "reachable":bool(ping["reachable"]) if ping else False,
-            "uptime":   uptm,
+            "name":            c["name"],
+            "ip":              c["ip"],
+            "location":        location,
+            "location_source": loc_source,
+            "lat":             lat,
+            "lon":             lon,
+            "disabled":        bool(c["disabled"]),
+            "last_seen":       c["last_seen"] or "",
+            "total_rx":        fmt_bytes(c["total_rx"]),
+            "total_tx":        fmt_bytes(c["total_tx"]),
+            "ping_ms":         ping["latency_ms"] if ping else None,
+            "reachable":       bool(ping["reachable"]) if ping else False,
+            "uptime":          uptm,
         })
 
     return render_template("map.html",
@@ -1590,6 +1686,13 @@ def wireguard():
         peer["ping_ms"]  = ping["latency_ms"] if ping else None
         peer["reachable"]= bool(ping["reachable"]) if ping else False
         peer["uptime"]   = get_uptime_percent(name)
+
+        # Geolocate endpoint IP (uses cache — no API call if already known)
+        ep_ip = peer.get("endpoint_ip", "")
+        geo   = geolocate_ip(ep_ip) if ep_ip else None
+        peer["auto_location"] = f"{geo['city']}, {geo['country']}" if geo else ""
+        peer["auto_lat"]      = geo["lat"] if geo else None
+        peer["auto_lon"]      = geo["lon"] if geo else None
 
     selected_interface = interface or os.getenv("MT_WIREGUARD_INTERFACE","Test-Wireguard")
     return render_template("wireguard.html", peers=peers,
