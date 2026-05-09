@@ -15,6 +15,11 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Test artifacts
+.pytest_cache/
+test-results/
+playwright-report/
+
 # Logs & temp
 *.log
 /tmp

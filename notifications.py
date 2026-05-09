@@ -1,13 +1,17 @@
 """
 notifications.py
 Handles sending alerts via Discord webhook, Email (SMTP), and Telegram bot.
-Settings are stored in the DB (notifications table).
+Settings are stored in the DB (notifications table). Sensitive credentials
+(discord_webhook, email_pass, telegram_token) are encrypted at rest with
+Fernet via the `vault` module — `get_settings()` returns plaintext for use,
+`save_settings()` re-encrypts before write.
 """
 
 import sqlite3, smtplib, urllib.request, urllib.parse, json, ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime
+import vault
 
 DB_FILE = "vpn_dashboard.db"
 
@@ -17,13 +21,14 @@ DB_FILE = "vpn_dashboard.db"
 # ─────────────────────────────────────────────
 
 def get_settings():
-    """Return notification settings as a dict. Returns defaults if not set."""
+    """Return notification settings as a dict. Returns defaults if not set.
+    Sensitive credentials are decrypted on the way out."""
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM notifications LIMIT 1").fetchone()
     conn.close()
     if row:
-        return dict(row)
+        return vault.decrypt_settings(dict(row))
     return {
         # Discord
         "discord_enabled": 0,
@@ -57,6 +62,8 @@ def get_settings():
 
 
 def save_settings(data: dict):
+    """Persist notification settings; sensitive credentials are encrypted before write."""
+    enc = vault.encrypt_settings(data)
     conn = sqlite3.connect(DB_FILE)
     conn.execute("DELETE FROM notifications")
     conn.execute("""
@@ -79,7 +86,7 @@ def save_settings(data: dict):
             :notify_quota, :notify_expiry_reminder,
             :notify_login_failure, :notify_login_locked, :notify_provision
         )
-    """, data)
+    """, enc)
     conn.commit()
     conn.close()
 

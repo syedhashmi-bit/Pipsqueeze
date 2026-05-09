@@ -13,6 +13,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="PipSqueeze">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
         :root{
@@ -157,6 +158,9 @@
         @media(max-width:900px){.expand-grid{grid-template-columns:1fr 1fr;}}
         @media(max-width:600px){.expand-grid{grid-template-columns:1fr;}}
         .expand-section-title{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--cyan);opacity:.6;text-transform:uppercase;margin-bottom:10px;}
+        .up-range-btn{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;padding:2px 7px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:2px;cursor:pointer;transition:all .15s;text-transform:uppercase;}
+        .up-range-btn:hover{color:var(--cyan);border-color:rgba(0,200,255,0.3);}
+        .up-range-btn.active{color:var(--cyan);border-color:var(--cyan);background:var(--cyan-dim);}
         .history-list{max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;}
         .history-list::-webkit-scrollbar{width:3px;}
         .history-list::-webkit-scrollbar-thumb{background:rgba(0,200,255,0.2);border-radius:2px;}
@@ -313,10 +317,12 @@
                             <div class="action-col">
                                 {% if peer.get("disabled")=="true" %}
                                 <form method="POST" action="{{ url_for('enable_peer', peer_id=pid) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <button class="btn btn-green btn-sm" type="submit">ENABLE</button>
                                 </form>
                                 {% else %}
                                 <form method="POST" action="{{ url_for('disable_peer', peer_id=pid) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                     <button class="btn btn-danger btn-sm" type="submit">DISABLE</button>
                                 </form>
                                 {% endif %}
@@ -365,7 +371,14 @@
                                         </div>
                                     </div>
                                     <div>
-                                        <div class="expand-section-title">// 7-DAY UPTIME TREND</div>
+                                        <div class="expand-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                                            <span>// UPTIME TREND</span>
+                                            <span style="display:inline-flex;gap:4px;">
+                                                <button type="button" class="up-range-btn active" data-days="7" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">7d</button>
+                                                <button type="button" class="up-range-btn"        data-days="30" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">30d</button>
+                                                <button type="button" class="up-range-btn"        data-days="90" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">90d</button>
+                                            </span>
+                                        </div>
                                         <div class="chart-wrap" style="height:110px;">
                                             <canvas id="uptime-chart-{{ loop.index }}"></canvas>
                                         </div>
@@ -389,6 +402,9 @@
 <div id="toast" class="toast"></div>
 
 <script>
+// ── CSRF ──
+const CSRF = document.querySelector('meta[name="csrf-token"]').content;
+
 // ── CHART DATA FROM SERVER ──
 const serverPeerData = {
     {% for peer in peers %}
@@ -469,10 +485,13 @@ function drawExpandChart(idx,rxArr,txArr){
     });
 }
 
-// ── 7-DAY UPTIME BAR CHART ──
-function drawUptimeChart(idx,name){
+// ── UPTIME BAR CHART (range-aware: 7d / 30d / 90d) ──
+const _uptimeRanges={};   // idx -> days
+function drawUptimeChart(idx,name,days){
     if(!name)return;
-    fetch('/api/uptime-history/'+encodeURIComponent(name))
+    days=days||_uptimeRanges[idx]||7;
+    _uptimeRanges[idx]=days;
+    fetch(`/api/uptime-history/${encodeURIComponent(name)}?days=${days}`)
         .then(r=>r.json())
         .then(data=>{
             const canvas=document.getElementById(`uptime-chart-${idx}`);
@@ -482,29 +501,46 @@ function drawUptimeChart(idx,name){
             const bg=vals.map(v=>v===null?'rgba(61,96,112,0.2)':v>=90?'rgba(0,255,157,0.55)':v>=70?'rgba(255,201,64,0.55)':'rgba(255,64,96,0.55)');
             const bc=vals.map(v=>v===null?'#3d6070':v>=90?'#00ff9d':v>=70?'#ffc940':'#ff4060');
             if(uptimeCharts[idx]){uptimeCharts[idx].destroy();}
+            // For the 30d/90d view, hide most x labels for readability
+            const tickStep = days<=14 ? 1 : (days<=30 ? 5 : 14);
             uptimeCharts[idx]=new Chart(canvas,{
                 type:'bar',
                 data:{
                     labels,
                     datasets:[{
                         data:vals.map(v=>v===null?0:v),
-                        backgroundColor:bg,borderColor:bc,borderWidth:1,borderRadius:3
+                        backgroundColor:bg,borderColor:bc,borderWidth:1,borderRadius:days>30?1:3
                     }]
                 },
                 options:{
                     animation:false,
                     plugins:{
                         legend:{display:false},
-                        tooltip:{callbacks:{label:ctx=>vals[ctx.dataIndex]===null?'No data':vals[ctx.dataIndex]+'%'}}
+                        tooltip:{callbacks:{
+                            title:ctx=>data[ctx[0].dataIndex].day,
+                            label:ctx=>vals[ctx.dataIndex]===null?'No data':vals[ctx.dataIndex]+'%'
+                        }}
                     },
                     scales:{
-                        x:{ticks:{color:'#3d6070',font:{family:'Share Tech Mono',size:9}},grid:{color:'rgba(0,200,255,0.05)'}},
+                        x:{ticks:{color:'#3d6070',font:{family:'Share Tech Mono',size:9},
+                                  autoSkip:false,callback:function(_,i){return (i%tickStep===0||i===labels.length-1)?labels[i]:'';}},grid:{color:'rgba(0,200,255,0.05)'}},
                         y:{min:0,max:100,ticks:{color:'#3d6070',font:{family:'Share Tech Mono',size:9},callback:v=>v+'%'},grid:{color:'rgba(0,200,255,0.05)'}}
                     },
                     responsive:true,maintainAspectRatio:false
                 }
             });
         }).catch(()=>{});
+}
+
+function setUptimeRange(btn){
+    const idx=btn.dataset.row;
+    const days=parseInt(btn.dataset.days,10);
+    // Toggle active button styling
+    btn.parentElement.querySelectorAll('.up-range-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    // Find peer name for this row from the existing serverPeerData
+    const name=(serverPeerData[idx]||{}).name||'';
+    drawUptimeChart(idx,name,days);
 }
 
 // ── UPTIME DISPLAY ──
@@ -572,8 +608,8 @@ function loadPeers(manual=false){
             if(on)online++;if(dis)disabled++;else enabled++;
 
             const action=dis
-                ?`<form method="POST" action="/wireguard/enable/${peer.peer_id}"><button class="btn btn-green btn-sm" type="submit">ENABLE</button></form>`
-                :`<form method="POST" action="/wireguard/disable/${peer.peer_id}"><button class="btn btn-danger btn-sm" type="submit">DISABLE</button></form>`;
+                ?`<form method="POST" action="/wireguard/enable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-green btn-sm" type="submit">ENABLE</button></form>`
+                :`<form method="POST" action="/wireguard/disable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-danger btn-sm" type="submit">DISABLE</button></form>`;
 
             const existRow=tbody.querySelector(`tr[data-pid="${peer.peer_id}"]`);
             if(existRow){

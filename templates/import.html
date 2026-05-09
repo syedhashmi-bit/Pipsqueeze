@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PipSqueeze — Import Peers</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="apple-touch-icon" href="/static/logo.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#00c8ff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="PipSqueeze">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <style>
+        :root{--bg:#030508;--panel:rgba(6,14,24,0.93);--border:rgba(0,200,255,0.1);--border-lit:rgba(0,200,255,0.4);--cyan:#00c8ff;--cyan-dim:rgba(0,200,255,0.07);--green:#00ff9d;--green-dim:rgba(0,255,157,0.07);--red:#ff4060;--red-dim:rgba(255,64,96,0.09);--yellow:#ffc940;--yellow-dim:rgba(255,201,64,0.09);--text:#c8e0ee;--muted:#3d6070;--muted-mid:#6a8ea0;--mono:'Share Tech Mono',monospace;--display:'Rajdhani',sans-serif;}
+        *{box-sizing:border-box;margin:0;padding:0;}
+        body{font-family:var(--display);background:var(--bg);color:var(--text);min-height:100vh;padding:28px 32px;}
+        .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+        h1{font-size:24px;font-weight:700;letter-spacing:.05em;color:#fff;}
+        .page-sub{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px;}
+        .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:3px;font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.06em;cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;border:none;}
+        .btn-ghost{background:transparent;border:1px solid var(--border-lit);color:var(--cyan);}
+        .btn-ghost:hover{background:var(--cyan-dim);}
+        .btn-green{background:var(--green-dim);border:1px solid rgba(0,255,157,0.3);color:var(--green);}
+        .btn-green:hover{background:rgba(0,255,157,0.12);}
+        .btn-sm{padding:6px 11px;font-size:11.5px;}
+        .panel{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:24px;max-width:1100px;margin:0 auto;}
+        .panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+        .panel-title{font-size:15px;font-weight:700;letter-spacing:.06em;color:#fff;}
+        .chip{font-family:var(--mono);font-size:10.5px;padding:4px 9px;border-radius:2px;background:var(--cyan-dim);border:1px solid rgba(0,200,255,0.15);color:var(--cyan);}
+        .empty{font-family:var(--mono);font-size:12.5px;color:var(--muted);padding:30px;text-align:center;border:1px dashed rgba(0,200,255,0.1);border-radius:3px;}
+        table{width:100%;border-collapse:collapse;}
+        th{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);background:rgba(0,200,255,0.02);}
+        td{padding:11px 12px;font-size:13px;border-bottom:1px solid rgba(0,200,255,0.05);vertical-align:middle;}
+        tr:hover td{background:rgba(0,200,255,0.02);}
+        .pubkey{font-family:var(--mono);font-size:11px;color:var(--muted-mid);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .ip-cell{font-family:var(--mono);font-size:13px;color:var(--cyan);}
+        .name-input{width:100%;padding:6px 10px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.13);border-radius:3px;color:var(--text);font-family:var(--mono);font-size:12.5px;outline:none;}
+        .name-input:focus{border-color:var(--cyan);}
+        .pill{display:inline-block;padding:3px 9px;border-radius:2px;font-family:var(--mono);font-size:10.5px;}
+        .pill-online{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,255,157,0.2);}
+        .pill-offline{background:var(--cyan-dim);color:var(--muted-mid);border:1px solid var(--border);}
+        .actionbar{margin-top:18px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+        .helper{font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7;background:rgba(0,200,255,0.03);border:1px solid var(--border);border-radius:3px;padding:12px 14px;margin-bottom:18px;}
+        .helper code{color:var(--cyan);background:rgba(0,200,255,0.08);padding:1px 5px;border-radius:2px;}
+        .flash{padding:11px 14px;border-radius:3px;margin-bottom:14px;font-family:var(--mono);font-size:13px;}
+        .flash-success{background:var(--green-dim);border:1px solid rgba(0,255,157,0.25);color:var(--green);}
+        .flash-error{background:var(--red-dim);border:1px solid rgba(255,64,96,0.25);color:var(--red);}
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <div>
+        <h1>📥 IMPORT PEERS</h1>
+        <div class="page-sub">// Register existing MikroTik WireGuard peers into PipSqueeze</div>
+    </div>
+    <a href="{{ url_for('home') }}"><button class="btn btn-ghost" type="button">← DASHBOARD</button></a>
+</div>
+
+<div class="panel">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat or 'success' }}">{{ msg }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="helper">
+        Imported peers are tracked but their <code>.conf</code> file is NOT regenerated — PipSqueeze
+        only has the peer's public key, not the private key, so config download / QR are unavailable.
+        You can still rename, enable/disable, monitor traffic and uptime, and delete imported peers
+        normally. Imports are tagged <code>imported</code> by default.
+    </div>
+
+    <div class="panel-head">
+        <span class="panel-title">UNREGISTERED MIKROTIK PEERS</span>
+        <span class="chip">{{ peers|length }} found</span>
+    </div>
+
+    {% if peers %}
+    <form method="post" action="{{ url_for('import_peers') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:30px;"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+                    <th>Suggested Name</th>
+                    <th>VPN IP</th>
+                    <th>Public Key</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in peers %}
+                <tr>
+                    <td><input type="checkbox" name="selected" value="{{ p.peer_id }}" class="row-cb"></td>
+                    <td>
+                        <input class="name-input" name="name_{{ p.peer_id }}"
+                               value="{{ p.suggested_name }}"
+                               pattern="[a-zA-Z0-9_]+" required>
+                    </td>
+                    <td class="ip-cell">{{ p.ip }}</td>
+                    <td class="pubkey" title="{{ p.public_key }}">{{ p.public_key }}</td>
+                    <td>
+                        {% if p.status == "Online" %}
+                        <span class="pill pill-online">● ONLINE</span>
+                        {% else %}
+                        <span class="pill pill-offline">○ OFFLINE</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="actionbar">
+            <a href="{{ url_for('home') }}"><button type="button" class="btn btn-ghost">CANCEL</button></a>
+            <button type="submit" class="btn btn-green">📥 IMPORT SELECTED</button>
+        </div>
+    </form>
+    {% else %}
+    <div class="empty">// No unregistered peers found — every MikroTik peer is already tracked.</div>
+    {% endif %}
+</div>
+
+<script>
+function toggleAll(cb){document.querySelectorAll('.row-cb').forEach(x=>x.checked=cb.checked);}
+</script>
+
+</body>
+</html>

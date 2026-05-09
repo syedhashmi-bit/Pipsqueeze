@@ -2,6 +2,7 @@ from mikrotik_api import MikroTikAPI
 from flask import (Flask, render_template, request, send_file,
                    session, redirect, url_for, flash, jsonify,
                    Response, send_from_directory)
+from flask_wtf.csrf import CSRFProtect, CSRFError, generate_csrf
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
@@ -16,6 +17,37 @@ load_dotenv()
 app = Flask(__name__)
 application = app
 app.secret_key = os.getenv("SECRET_KEY")
+
+# ─────────────────────────────────────────────
+# Security hardening
+# ─────────────────────────────────────────────
+# Session cookie flags — only safe over HTTPS (we are behind nginx + TLS).
+# Setting WTF_CSRF_SSL_STRICT=False so dev/local-port testing still works;
+# in production the cookie is Secure-only anyway, so the actual request always
+# arrives over TLS.
+app.config.update(
+    SESSION_COOKIE_SECURE=os.getenv("COOKIE_INSECURE", "0") != "1",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    WTF_CSRF_TIME_LIMIT=int(os.getenv("CSRF_TIME_LIMIT", "7200")),
+    WTF_CSRF_SSL_STRICT=False,
+)
+csrf = CSRFProtect(app)
+
+
+@app.errorhandler(CSRFError)
+def _csrf_error(e):
+    # Friendlier message than the default 400 page.
+    if request.path.startswith("/api/") or request.is_json:
+        return jsonify({"error": "csrf", "reason": e.description}), 400
+    flash(f"Security check failed ({e.description}). Please reload and try again.", "error")
+    return redirect(request.referrer or url_for("home"))
+
+
+@app.context_processor
+def _inject_csrf():
+    # Make csrf_token() available in every template without manual passing.
+    return {"csrf_token": generate_csrf}
 
 USERNAME          = os.getenv("APP_USERNAME")
 PASSWORD          = os.getenv("APP_PASSWORD")
@@ -46,6 +78,16 @@ def _opt_float(name):
 MT_LAT   = _opt_float("MT_LAT")
 MT_LON   = _opt_float("MT_LON")
 MT_IFACE = os.getenv("MT_WIREGUARD_INTERFACE", "WireGuard1")
+
+# Auto-cleanup: delete clients with last_seen IS NULL whose created_at is older
+# than this many days. Disabled when blank or 0. Runs at most once per UTC day.
+def _opt_int(name):
+    v = os.getenv(name, "").strip()
+    try:
+        return int(v) if v else 0
+    except ValueError:
+        return 0
+AUTO_CLEANUP_DAYS = _opt_int("AUTO_CLEANUP_DAYS")
 
 
 # ─────────────────────────────────────────────
@@ -205,6 +247,18 @@ def init_db():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            label        TEXT NOT NULL,
+            key_hash     TEXT UNIQUE NOT NULL,
+            scope        TEXT DEFAULT 'read',
+            created_at   TEXT NOT NULL,
+            last_used_at TEXT,
+            revoked      INTEGER DEFAULT 0
+        )
+    """)
+
     # Seed default admin from .env (INSERT OR IGNORE is race-safe across workers)
     default_user = os.getenv("APP_USERNAME", "admin")
     default_pass = os.getenv("APP_PASSWORD", "changeme")
@@ -247,6 +301,15 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    # Migrate any plaintext notification secrets to Fernet-encrypted at rest.
+    # Idempotent: re-encrypts only fields that aren't already encrypted.
+    try:
+        import vault
+        if vault.migrate_settings():
+            print("[vault] Migrated plaintext notification secrets to encrypted storage.")
+    except Exception as e:
+        print(f"[vault] migrate_settings skipped: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -597,6 +660,7 @@ _last_digest_day    = None
 _last_reminder_date = None
 _reminded_today     = set()
 _firewall_synced    = False
+_last_cleanup_date  = None
 _geo_cache      = {}   # ip -> geo dict or None
 _peer_endpoints = {}   # client_name -> latest endpoint_ip
 
@@ -610,7 +674,8 @@ _PRIVATE_PREFIXES = (
 
 
 def geolocate_ip(ip):
-    """Return {lat, lon, city, country, region} for a public IP, or None."""
+    """Return {lat, lon, city, country, region} for a public IP, or None.
+    Uses ipapi.co over HTTPS (1k req/day free, no API key). Cached per process."""
     if not ip:
         return None
     for (prefix,) in _PRIVATE_PREFIXES:
@@ -619,17 +684,18 @@ def geolocate_ip(ip):
     if ip in _geo_cache:
         return _geo_cache[ip]
     try:
-        url = f"http://ip-api.com/json/{ip}?fields=status,lat,lon,city,country,regionName"
+        url = f"https://ipapi.co/{ip}/json/"
         req = urllib.request.Request(url, headers={"User-Agent": "PipSqueeze/1.0"})
         with urllib.request.urlopen(req, timeout=4) as resp:
             data = json.loads(resp.read().decode())
-        if data.get("status") == "success":
+        # ipapi.co returns an `error` key when over quota / blocked / not found
+        if not data.get("error") and data.get("latitude") is not None:
             result = {
-                "lat":     data["lat"],
-                "lon":     data["lon"],
-                "city":    data.get("city", ""),
-                "country": data.get("country", ""),
-                "region":  data.get("regionName", ""),
+                "lat":     float(data["latitude"]),
+                "lon":     float(data["longitude"]),
+                "city":    data.get("city", "") or "",
+                "country": data.get("country_name", "") or "",
+                "region":  data.get("region", "") or "",
             }
             _geo_cache[ip] = result
             return result
@@ -640,7 +706,7 @@ def geolocate_ip(ip):
 
 
 def _monitor_loop():
-    global _last_digest_day, _last_reminder_date, _reminded_today, _firewall_synced
+    global _last_digest_day, _last_reminder_date, _reminded_today, _firewall_synced, _last_cleanup_date
     while True:
         try:
             mt = MikroTikAPI()
@@ -802,10 +868,70 @@ def _monitor_loop():
                 except Exception:
                     pass
 
+            # Auto-cleanup of never-connected clients (opt-in via AUTO_CLEANUP_DAYS env var).
+            # Runs at most once per UTC day. Deletes clients with last_seen NULL whose
+            # created_at is older than the configured threshold.
+            if AUTO_CLEANUP_DAYS and today_dt != _last_cleanup_date:
+                _last_cleanup_date = today_dt
+                try:
+                    _run_auto_cleanup(AUTO_CLEANUP_DAYS)
+                except Exception:
+                    pass
+
         except Exception:
             pass
 
         time.sleep(30)
+
+
+def _run_auto_cleanup(days: int):
+    """Delete clients that have never connected and were created more than `days` ago."""
+    cutoff_iso = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S UTC")
+    conn = get_db_connection()
+    stale = conn.execute(
+        "SELECT name FROM clients WHERE last_seen IS NULL AND created_at < ?",
+        (cutoff_iso,)
+    ).fetchall()
+    conn.close()
+    if not stale:
+        return
+    deleted = []
+    for row in stale:
+        name = row["name"]
+        try:
+            mt = MikroTikAPI(); mt.connect()
+            mt.delete_peer_by_comment(name); mt.disconnect()
+        except Exception:
+            pass  # best-effort
+        try:
+            ip_row_conn = get_db_connection()
+            ip_row = ip_row_conn.execute("SELECT ip FROM clients WHERE name=?", (name,)).fetchone()
+            ip_row_conn.close()
+            if ip_row:
+                try:
+                    mt2 = MikroTikAPI(); mt2.connect()
+                    mt2.remove_from_lan_block(ip_row["ip"]); mt2.disconnect()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        for path in (f"clients/{name}.conf", f"qr_codes/{name}.png"):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+        cdel = get_db_connection()
+        cdel.execute("DELETE FROM clients WHERE name=?", (name,))
+        cdel.commit(); cdel.close()
+        add_log(f"[auto-cleanup] Deleted never-connected client '{name}' (created >{days} days ago)")
+        deleted.append(name)
+    if deleted:
+        notif.send_notification(
+            "delete",
+            f"Auto-cleanup removed {len(deleted)} never-connected client(s) older than {days} days: "
+            + ", ".join(deleted[:8]) + ("…" if len(deleted) > 8 else "")
+        )
 
 
 # ─────────────────────────────────────────────
@@ -927,6 +1053,57 @@ def admin_required(f):
         touch_session()
         return f(*args, **kwargs)
     return decorated
+
+
+# ─────────────────────────────────────────────
+# API KEY AUTH
+# ─────────────────────────────────────────────
+import hashlib
+
+def _hash_api_key(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _extract_api_key():
+    """Pull the API key from Authorization: Bearer or X-API-Key header."""
+    auth = request.headers.get("Authorization", "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth.split(None, 1)[1].strip()
+    return request.headers.get("X-API-Key", "").strip()
+
+
+def api_key_required(scope="read"):
+    """Decorator: require a valid API key with at least the given scope.
+    Scopes: 'read' (default) or 'write'. Write keys can also do read."""
+    def wrap(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            key = _extract_api_key()
+            if not key:
+                return jsonify({"error": "missing api key"}), 401
+            kh = _hash_api_key(key)
+            conn = get_db_connection()
+            row = conn.execute(
+                "SELECT * FROM api_keys WHERE key_hash=? AND revoked=0", (kh,)
+            ).fetchone()
+            if not row:
+                conn.close()
+                return jsonify({"error": "invalid api key"}), 401
+            row_scope = row["scope"] or "read"
+            if scope == "write" and row_scope != "write":
+                conn.close()
+                return jsonify({"error": "key lacks write scope"}), 403
+            conn.execute(
+                "UPDATE api_keys SET last_used_at=? WHERE id=?",
+                (datetime.utcnow().isoformat(), row["id"])
+            )
+            conn.commit()
+            conn.close()
+            return f(*args, **kwargs)
+        # Mark for csrf.exempt registration
+        decorated._is_api_route = True
+        return decorated
+    return wrap
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1767,9 +1944,16 @@ def api_uptime(client):
 @app.route("/api/uptime-history/<client>")
 @login_required
 def api_uptime_history(client):
-    """Return per-day uptime % for the last 7 days (including today)."""
+    """Return per-day uptime % for the last N days (default 7, max 90).
+    Use ?days=30 query param for longer windows."""
+    try:
+        days = int(request.args.get("days", "7"))
+    except ValueError:
+        days = 7
+    days = max(1, min(days, 90))
+
     conn  = get_db_connection()
-    since = (datetime.utcnow() - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S UTC")
+    since = (datetime.utcnow() - timedelta(days=days - 1)).strftime("%Y-%m-%d %H:%M:%S UTC")
     rows  = conn.execute(
         """SELECT DATE(recorded_at) AS day,
                   COUNT(*) AS total,
@@ -1784,9 +1968,14 @@ def api_uptime_history(client):
 
     row_map = {r["day"]: r for r in rows}
     result  = []
-    for i in range(6, -1, -1):
+    for i in range(days - 1, -1, -1):
         day   = (datetime.utcnow() - timedelta(days=i)).strftime("%Y-%m-%d")
-        label = "Today" if i == 0 else f"-{i}d"
+        if i == 0:
+            label = "Today"
+        elif days <= 14:
+            label = f"-{i}d"
+        else:
+            label = day[5:]  # "MM-DD"
         r     = row_map.get(day)
         pct   = round((r["online_count"] / r["total"]) * 100, 1) if r and r["total"] else None
         result.append({"day": day, "label": label, "pct": pct})
@@ -2119,6 +2308,295 @@ def provision_delete(token_id):
     conn.close()
     flash("Provision token deleted.")
     return redirect(url_for("provision_manage"))
+
+
+# ─────────────────────────────────────────────
+# IMPORT: register existing MikroTik peers into PipSqueeze
+# ─────────────────────────────────────────────
+
+@app.route("/import", methods=["GET"])
+@admin_required
+def import_view():
+    """Show MikroTik peers that aren't tracked in our DB yet."""
+    try:
+        mt = MikroTikAPI()
+        mt.connect()
+        mt_peers = mt.get_peers()
+        mt.disconnect()
+    except Exception as e:
+        flash(f"MikroTik API error: {e}", "error")
+        return redirect(url_for("home"))
+
+    conn = get_db_connection()
+    known = {row["name"] for row in conn.execute("SELECT name FROM clients").fetchall()}
+    known_ips = {row["ip"] for row in conn.execute("SELECT ip FROM clients").fetchall()}
+    conn.close()
+
+    importable = []
+    used_names = set(known)
+    for p in mt_peers:
+        comment   = (p.get("comment") or "").strip()
+        allowed   = (p.get("allowed-address") or "").split(",")[0].strip()
+        ip        = allowed.split("/")[0] if allowed else ""
+        pubkey    = p.get("public-key", "")
+
+        # Skip peers already tracked by name OR IP
+        if comment and comment in known:
+            continue
+        if ip and ip in known_ips:
+            continue
+
+        # Suggest a sanitized name; fall back to imported_<n>
+        suggested = re.sub(r"[^a-zA-Z0-9_]", "_", comment) if comment else ""
+        if not suggested or suggested in used_names:
+            n = 1
+            while f"imported_{n}" in used_names:
+                n += 1
+            suggested = f"imported_{n}"
+        used_names.add(suggested)
+
+        importable.append({
+            "peer_id":        p.get("peer_id"),
+            "suggested_name": suggested,
+            "ip":             ip,
+            "public_key":     pubkey,
+            "status":         p.get("status", "Offline"),
+        })
+
+    return render_template("import.html", peers=importable)
+
+
+@app.route("/import", methods=["POST"])
+@admin_required
+def import_peers():
+    """Insert selected MikroTik peers into the clients table.
+    We do NOT generate a .conf — we don't have the private key.
+    Imported peers get tagged 'imported' and will not have download/QR options."""
+    selected_ids = request.form.getlist("selected")
+    if not selected_ids:
+        flash("No peers selected.", "error")
+        return redirect(url_for("import_view"))
+
+    try:
+        mt = MikroTikAPI()
+        mt.connect()
+        mt_peers = {p["peer_id"]: p for p in mt.get_peers()}
+        mt.disconnect()
+    except Exception as e:
+        flash(f"MikroTik API error: {e}", "error")
+        return redirect(url_for("import_view"))
+
+    conn = get_db_connection()
+    existing = {row["name"] for row in conn.execute("SELECT name FROM clients").fetchall()}
+    existing_ips = {row["ip"] for row in conn.execute("SELECT ip FROM clients").fetchall()}
+
+    imported = 0
+    skipped  = []
+    for pid in selected_ids:
+        peer = mt_peers.get(pid)
+        if not peer:
+            skipped.append(pid)
+            continue
+
+        name = (request.form.get(f"name_{pid}") or "").strip()
+        if not is_valid_client_name(name) or name in existing:
+            skipped.append(name or pid)
+            continue
+
+        allowed = (peer.get("allowed-address") or "").split(",")[0].strip()
+        ip = allowed.split("/")[0] if allowed else ""
+        if not ip or ip in existing_ips:
+            skipped.append(name)
+            continue
+
+        # Update MikroTik comment if it doesn't already match the chosen name
+        if (peer.get("comment") or "").strip() != name:
+            try:
+                mt = MikroTikAPI()
+                mt.connect()
+                mt.api.get_resource("/interface/wireguard/peers").set(id=pid, comment=name)
+                mt.disconnect()
+            except Exception:
+                pass  # non-fatal; comment update is best-effort
+
+        token = secrets.token_urlsafe(24)
+        conn.execute(
+            """INSERT INTO clients
+               (name, ip, notes, tags, location, lat, lon, expires_at,
+                portal_token, access_mode, quota_mb, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (name, ip, "Imported from MikroTik (no private key)", "imported",
+             "", None, None, None, token, "internet", None,
+             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
+        )
+        existing.add(name)
+        existing_ips.add(ip)
+        imported += 1
+        add_log(f"Imported existing peer '{name}' ({ip}) from MikroTik")
+
+    conn.commit()
+    conn.close()
+
+    if imported:
+        flash(f"Imported {imported} peer(s) successfully.", "success")
+    if skipped:
+        flash(f"Skipped: {', '.join(map(str, skipped))} (invalid name or duplicate).", "error")
+    return redirect(url_for("home"))
+
+
+# ─────────────────────────────────────────────
+# API KEY MANAGEMENT (admin UI) and v1 API
+# ─────────────────────────────────────────────
+
+@app.route("/admin/api-keys")
+@admin_required
+def admin_api_keys_page():
+    conn = get_db_connection()
+    keys = conn.execute(
+        "SELECT id, label, scope, created_at, last_used_at, revoked FROM api_keys ORDER BY id DESC"
+    ).fetchall()
+    conn.close()
+    new_key = session.pop("_new_api_key", None)
+    new_label = session.pop("_new_api_key_label", None)
+    return render_template("admin_api_keys.html",
+                           keys=keys, new_key=new_key, new_label=new_label)
+
+
+@app.route("/admin/api-keys/create", methods=["POST"])
+@admin_required
+def admin_api_keys_create():
+    label = (request.form.get("label") or "").strip()[:80]
+    scope = request.form.get("scope", "read")
+    if scope not in ("read", "write"):
+        scope = "read"
+    if not label:
+        flash("Label is required.", "error")
+        return redirect(url_for("admin_api_keys_page"))
+    raw = "pps_" + secrets.token_urlsafe(32)
+    kh  = _hash_api_key(raw)
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO api_keys (label, key_hash, scope, created_at) VALUES (?,?,?,?)",
+        (label, kh, scope, datetime.utcnow().isoformat())
+    )
+    conn.commit()
+    conn.close()
+    add_log(f"Created API key '{label}' ({scope})")
+    # Stash the plaintext in the session JUST for the next page render — never stored at rest.
+    session["_new_api_key"]       = raw
+    session["_new_api_key_label"] = label
+    return redirect(url_for("admin_api_keys_page"))
+
+
+@app.route("/admin/api-keys/revoke/<int:kid>", methods=["POST"])
+@admin_required
+def admin_api_keys_revoke(kid):
+    conn = get_db_connection()
+    row  = conn.execute("SELECT label FROM api_keys WHERE id=?", (kid,)).fetchone()
+    if row:
+        conn.execute("UPDATE api_keys SET revoked=1 WHERE id=?", (kid,))
+        conn.commit()
+        add_log(f"Revoked API key '{row['label']}'")
+    conn.close()
+    flash("API key revoked.")
+    return redirect(url_for("admin_api_keys_page"))
+
+
+# ── V1 API ──
+# All /api/v1/* routes accept Authorization: Bearer <key> or X-API-Key: <key>.
+# These are stateless and exempt from CSRF.
+
+@app.route("/api/v1/clients", methods=["GET"])
+@csrf.exempt
+@api_key_required(scope="read")
+def api_v1_list_clients():
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT name, ip, tags, disabled, last_seen, total_rx, total_tx, "
+        "expires_at, access_mode, quota_mb, created_at FROM clients ORDER BY name"
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/v1/peers", methods=["GET"])
+@csrf.exempt
+@api_key_required(scope="read")
+def api_v1_peers():
+    try:
+        mt = MikroTikAPI()
+        mt.connect()
+        peers = mt.get_peers()
+        mt.disconnect()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    # Trim to JSON-friendly fields
+    safe = []
+    for p in peers:
+        safe.append({
+            "name":              (p.get("comment") or "").strip(),
+            "ip":                (p.get("allowed-address") or "").split(",")[0].split("/")[0],
+            "status":            p.get("status"),
+            "last_handshake":    p.get("last_handshake"),
+            "handshake_seconds": p.get("handshake_seconds"),
+            "rx":                p.get("rx"),
+            "tx":                p.get("tx"),
+            "endpoint_ip":       p.get("endpoint_ip", ""),
+            "disabled":          p.get("disabled"),
+        })
+    return jsonify(safe)
+
+
+@app.route("/api/v1/clients/<client>/disable", methods=["POST"])
+@csrf.exempt
+@api_key_required(scope="write")
+def api_v1_disable(client):
+    if not is_valid_client_name(client):
+        return jsonify({"error": "invalid name"}), 400
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM clients WHERE name=?", (client,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "not found"}), 404
+    try:
+        mt = MikroTikAPI()
+        mt.connect()
+        mt.disable_peer_by_name(client)
+        mt.disconnect()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"mikrotik: {e}"}), 502
+    conn.execute("UPDATE clients SET disabled=1 WHERE name=?", (client,))
+    conn.commit()
+    conn.close()
+    add_log(f"[api] Disabled '{client}'")
+    return jsonify({"ok": True, "name": client, "disabled": True})
+
+
+@app.route("/api/v1/clients/<client>/enable", methods=["POST"])
+@csrf.exempt
+@api_key_required(scope="write")
+def api_v1_enable(client):
+    if not is_valid_client_name(client):
+        return jsonify({"error": "invalid name"}), 400
+    conn = get_db_connection()
+    row = conn.execute("SELECT * FROM clients WHERE name=?", (client,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"error": "not found"}), 404
+    try:
+        mt = MikroTikAPI()
+        mt.connect()
+        mt.enable_peer_by_name(client)
+        mt.disconnect()
+    except Exception as e:
+        conn.close()
+        return jsonify({"error": f"mikrotik: {e}"}), 502
+    conn.execute("UPDATE clients SET disabled=0 WHERE name=?", (client,))
+    conn.commit()
+    conn.close()
+    add_log(f"[api] Enabled '{client}'")
+    return jsonify({"ok": True, "name": client, "disabled": False})
 
 
 # ─────────────────────────────────────────────

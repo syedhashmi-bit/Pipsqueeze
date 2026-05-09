@@ -74,9 +74,19 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - [x] Scheduled expiry reminders — monitor thread sends notification 3 days before client expires (once per day per client); `notify_expiry_reminder` toggle in notifications
 - [x] Login failure notifications — sends alert on each failed login attempt with IP + attempt count; sends lockout alert when IP is locked out; `notify_login_failure` and `notify_login_locked` toggles
 - [x] Auto-provision URLs — one-time links that create a WireGuard client on first visit (no login required); `provision_tokens` DB table; `/provision/manage` page; `provision.html` (shows config + QR), `provision_error.html`; inherits tags/access_mode/quota/expiry from token; `notify_provision` toggle; PROVISION button in topbar
-- [x] Multi-user admin accounts — `admin_users` table with bcrypt-hashed passwords + roles (admin/viewer); default admin seeded from .env on first run; login route uses DB; `admin_required` decorator for write routes; USERS button (admin only) in topbar; `/admin/users` management page; role badge in topbar
+- [x] Multi-user admin accounts — `admin_users` table with Werkzeug-hashed passwords (scrypt by default) + roles (admin/viewer); default admin seeded from .env on first run; login route uses DB; `admin_required` decorator for write routes; USERS button (admin only) in topbar; `/admin/users` management page; role badge in topbar
 - [x] MikroTik firewall rule sync — address-list approach: one DROP rule (`pipsqueeze-lan-block`) blocks "internet" mode clients from LAN; `add_to_lan_block`/`remove_from_lan_block` called on create/delete/toggle/bulk/provision/access_mode change; `sync_firewall_rules()` reconciles on monitor thread first run; firewall rule count in `/api/mt-health` response
-- [x] Automatic IP geolocation — `endpoint-address` captured from MikroTik peers in `get_peers()`; `geolocate_ip(ip)` calls ip-api.com (free, no key, 1000 req/min) with private-IP skip list; `_geo_cache` dict avoids repeat API calls; `_peer_endpoints` dict tracks latest endpoint per client; on peer connect (if no manual location) auto-sets lat/lon/location in DB; wireguard.html expand row shows endpoint IP + detected location; index.html shows 🌍 auto-location for clients without manual location; map_view() falls back to endpoint geo for clients with no DB lat/lon; map popup shows 📍 (manual) vs 🌍 (auto) with "(auto)" label
+- [x] Automatic IP geolocation — `endpoint-address` captured from MikroTik peers in `get_peers()`; `geolocate_ip(ip)` calls **ipapi.co over HTTPS** (free, 1k/day, no key) with private-IP skip list; `_geo_cache` dict avoids repeat API calls; `_peer_endpoints` dict tracks latest endpoint per client; on peer connect (if no manual location) auto-sets lat/lon/location in DB; wireguard.html expand row shows endpoint IP + detected location; index.html shows 🌍 auto-location for clients without manual location; map_view() falls back to endpoint geo for clients with no DB lat/lon; map popup shows 📍 (manual) vs 🌍 (auto) with "(auto)" label
+- [x] **CSRF protection** — Flask-WTF `CSRFProtect` initialized in app.py; `csrf_meta_tag()` injected into all admin templates; hidden `csrf_token` input on every server-rendered POST form (login, security, wireguard, admin_users, index, notifications, provision_manage, import, admin_api_keys); JS POSTs (notifications test via FormData picks up the field; report digest sends `X-CSRFToken` header from meta); custom CSRFError handler returns JSON for `/api/*` and a flash+redirect for forms; `WTF_CSRF_TIME_LIMIT=7200`, `WTF_CSRF_SSL_STRICT=False`
+- [x] **Session cookie hardening** — `SESSION_COOKIE_SECURE=True` (env-overridable via `COOKIE_INSECURE=1` for local testing), `SESSION_COOKIE_HTTPONLY=True`, `SESSION_COOKIE_SAMESITE=Lax`
+- [x] **At-rest encryption of notification credentials** — `vault.py` module wraps Fernet (AES-128-CBC + HMAC-SHA256) with `MultiFernet` for key rotation; sensitive fields (`discord_webhook`, `email_pass`, `telegram_token`) prefixed with `enc:` in DB; key sourcing: explicit `SECRET_VAULT_KEY` env (comma-separated for rotation) OR derived from `SECRET_KEY` via PBKDF2-HMAC-SHA256 (600k iters, salt `pipsqueeze-vault-v1`); `migrate_settings()` runs in `init_db()` to encrypt any pre-existing plaintext values
+- [x] **Service worker versioning** — `CACHE_VERSION` constant in sw.js; cache name keyed off it; activate event purges old `pipsqueeze-*` caches; HTML pages now NEVER cached (would otherwise serve stale CSRF tokens), only `/static/*` falls back to cache when offline
+- [x] **WireGuard import** — `/import` route lists MikroTik peers not yet tracked in DB (matched by name AND IP); `templates/import.html` lets admin pick peers + edit suggested name; POST `/import` registers selected peers into `clients` (without generating .conf since private key isn't ours), tags them `imported`, optionally syncs comment back to MikroTik; IMPORT button (admin only) in topbar
+- [x] **API key access** — `api_keys` table (id, label, key_hash SHA-256, scope=read/write, created_at, last_used_at, revoked); `/admin/api-keys` page with create/revoke; one-time plaintext display via session flash; `@api_key_required(scope=...)` decorator accepts `Authorization: Bearer <key>` or `X-API-Key: <key>`; v1 endpoints under `/api/v1/`: `GET /clients`, `GET /peers`, `POST /clients/<name>/enable`, `POST /clients/<name>/disable`; all v1 routes `@csrf.exempt` (token auth)
+- [x] **Auto-cleanup of never-connected clients** — `AUTO_CLEANUP_DAYS` env var (0/blank = disabled); monitor thread runs `_run_auto_cleanup()` once per UTC day; finds clients with `last_seen IS NULL AND created_at < (now - N days)`; deletes from MikroTik + lan-block address-list + .conf + QR + DB; sends a `delete` notification with the names removed
+- [x] **Keyboard cheatsheet modal** — `?` key opens `#cheatModal` listing N/R/Esc/?; Esc closes; ignored while typing in inputs
+- [x] **Range-selectable uptime chart** — `/api/uptime-history/<client>?days=N` accepts 1-90 days (clamped); wireguard expand row has 7d/30d/90d toggle buttons; chart x-axis ticks auto-skip for 30d/90d to stay readable
+- [x] **Playwright + HTTP test suites** — `tests/` directory with `conftest.py` (spawns isolated test instance on port 5050 with copy of prod DB, deterministic admin + TOTP, COOKIE_INSECURE=1), `test_http_smoke.py` (15 tests, no browser), `test_ui_smoke.py` (21 tests, real Chromium); all 36 tests pass; tests cover every P0/P1/P2 change end-to-end
 
 ---
 
@@ -130,14 +140,14 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - [x] Multi-user admin accounts
 - [x] MikroTik firewall rule sync
 - [x] Scheduled expiry reminders (3 days before)
-- [ ] Auto-cleanup (delete never-connected clients after X days)
-- [ ] API key access for external scripts
-- [ ] WireGuard config import (register existing peers created outside dashboard)
-- [ ] Historical uptime % chart (currently just current 7-day percentage)
+- [x] Auto-cleanup (delete never-connected clients after X days) — `AUTO_CLEANUP_DAYS` env var
+- [x] API key access for external scripts — `/api/v1/*` with `Authorization: Bearer` or `X-API-Key` headers
+- [x] WireGuard config import (register existing peers created outside dashboard) — `/import` route
+- [x] Historical uptime % chart — 7d/30d/90d toggle in /wireguard expand row
 - [ ] Drag to reorder clients
-- [ ] Keyboard shortcut cheatsheet (`?` key)
-- [ ] SMTP password encryption at rest (currently plaintext in SQLite)
-- [ ] Scheduled expiry reminders (3 days before, not just day-of)
+- [x] Keyboard shortcut cheatsheet (`?` key) — opens `#cheatModal` from dashboard
+- [x] SMTP password encryption at rest — Fernet via `vault.py`; encrypts discord_webhook, email_pass, telegram_token
+- [x] Scheduled expiry reminders (already implemented, 3 days before)
 
 ---
 

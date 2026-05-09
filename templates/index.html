@@ -13,6 +13,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="PipSqueeze">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <style>
         :root{
             --bg:#030508;--surface:#060c13;--panel:rgba(6,14,24,0.93);
@@ -380,15 +381,25 @@
                     <button class="btn btn-ghost" type="button">🔗 PROVISION</button>
                 </a>
                 {% if session.get('role', 'admin') == 'admin' %}
+                <a href="{{ url_for('import_view') }}">
+                    <button class="btn btn-ghost" type="button">📥 IMPORT</button>
+                </a>
+                {% endif %}
+                {% if session.get('role', 'admin') == 'admin' %}
                 <a href="{{ url_for('admin_users_page') }}">
                     <button class="btn btn-ghost" type="button">👥 USERS</button>
+                </a>
+                <a href="{{ url_for('admin_api_keys_page') }}">
+                    <button class="btn btn-ghost" type="button">🔑 API KEYS</button>
                 </a>
                 {% endif %}
                 {% if session.get('role', 'admin') == 'admin' %}
                 <form method="post" action="{{ url_for('reset_db') }}" onsubmit="return confirm('Wipe all records?');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <button class="btn btn-danger" type="submit">RESET DB</button>
                 </form>
                 <form method="post" action="{{ url_for('reset_all') }}" onsubmit="return confirmResetAll();">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <button class="btn btn-danger" type="submit">⚠ RESET ALL</button>
                 </form>
                 {% endif %}
@@ -479,6 +490,7 @@
                     <span class="chip chip-green">NEW</span>
                 </div>
                 <form method="post" onsubmit="showLoader()">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                     <label class="fl">Client Name</label>
                     <div class="input-row field-gap">
                         <span class="i-icon">›</span>
@@ -582,6 +594,7 @@
                 <div class="bulk-bar" id="bulkBar">
                     <span class="bulk-count" id="bulkCount">0 selected</span>
                     <form method="post" action="{{ url_for('bulk_action') }}" id="bulkForm" style="display:flex;gap:7px;flex-wrap:wrap;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                         {% if session.get('role', 'admin') == 'admin' %}
                         <button class="btn btn-green btn-sm" type="submit" name="bulk_action" value="enable">ENABLE</button>
                         <button class="btn btn-yellow btn-sm" type="submit" name="bulk_action" value="disable">DISABLE</button>
@@ -653,6 +666,7 @@
                                             <button class="btn btn-ghost btn-sm" type="button" title="Download config">↓</button>
                                         </a>
                                         <form method="post" action="{{ url_for('toggle_client', client=c.name) }}">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                             <button class="btn {% if c.disabled %}btn-green{% else %}btn-yellow{% endif %} btn-sm" type="submit" title="Toggle enable/disable">
                                                 {% if c.disabled %}▶{% else %}⏸{% endif %}
                                             </button>
@@ -662,13 +676,16 @@
                                         <button class="btn btn-ghost btn-sm" onclick="openClone('{{ c.name }}')" title="Clone client">⎘</button>
                                         <button class="btn btn-ghost btn-sm" onclick="copyPortal('{{ url_for("portal", token=c.portal_token, _external=True) }}')" title="Copy portal link">🔗</button>
                                         <form method="post" action="{{ url_for('rotate_portal', client=c.name) }}" onsubmit="return confirm('Rotate portal link for {{ c.name }}? Old link stops working.')">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                             <button class="btn btn-yellow btn-sm" type="submit" title="Rotate portal link">🔄</button>
                                         </form>
                                         <form method="post" action="{{ url_for('regen_client', client=c.name) }}" onsubmit="return confirm('Regenerate keys for {{ c.name }}?')">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                             <button class="btn btn-yellow btn-sm" type="submit" title="Regenerate keys">↻</button>
                                         </form>
                                         {% if session.get('role', 'admin') == 'admin' %}
                                         <form method="post" action="{{ url_for('delete_client', client=c.name) }}" onsubmit="return confirm('Delete {{ c.name }}?')">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                                             <button class="btn btn-danger btn-sm" type="submit" title="Delete">✕</button>
                                         </form>
                                         {% endif %}
@@ -778,6 +795,7 @@
         <button class="modal-close" onclick="closeModal('renameModal')">✕</button>
         <div class="modal-title">✎ RENAME CLIENT</div>
         <form method="post" id="renameForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <label class="fl">New Name</label>
             <div class="input-row" style="margin-bottom:16px;"><span class="i-icon">›</span>
             <input type="text" name="new_name" id="renameInput" placeholder="new_name" required></div>
@@ -792,6 +810,7 @@
         <button class="modal-close" onclick="closeModal('editModal')">✕</button>
         <div class="modal-title">⚙ EDIT CLIENT</div>
         <form method="post" id="editForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <label class="fl">Tags</label>
             <div class="input-row field-gap"><span class="i-icon">#</span>
             <input type="text" name="tags" id="editTags" placeholder="mobile, office"></div>
@@ -847,6 +866,7 @@
         <div class="modal-title">⎘ CLONE CLIENT</div>
         <div style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:14px;">// New keys + IP, same tags/notes/expiry</div>
         <form method="post" id="cloneForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <label class="fl">New Client Name</label>
             <div class="input-row" style="margin-bottom:18px;"><span class="i-icon">›</span>
             <input type="text" name="new_name" id="cloneInput" placeholder="client_copy" required></div>
@@ -863,6 +883,35 @@
         <div style="display:flex;gap:10px;">
             <button class="btn btn-danger" style="flex:1;" onclick="submitBulkDelete()"><div class="fill"></div><span>DELETE →</span></button>
             <button class="btn btn-yellow" style="flex:1;" onclick="closeModal('bulkDeleteModal')">CANCEL</button>
+        </div>
+    </div>
+</div>
+
+<!-- KEYBOARD CHEATSHEET MODAL -->
+<div class="modal-bg" id="cheatModal">
+    <div class="modal" style="max-width:480px;">
+        <button class="modal-close" onclick="closeModal('cheatModal')">✕</button>
+        <div class="modal-title">⌨ KEYBOARD SHORTCUTS</div>
+        <div style="font-family:var(--mono);font-size:13px;line-height:2;">
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:6px 0;">
+                <span style="color:var(--muted);">Focus new client name</span>
+                <kbd style="background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-lit);border-radius:3px;padding:2px 9px;font-size:11.5px;">N</kbd>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:6px 0;">
+                <span style="color:var(--muted);">Open peers in new tab</span>
+                <kbd style="background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-lit);border-radius:3px;padding:2px 9px;font-size:11.5px;">R</kbd>
+            </div>
+            <div style="display:flex;justify-content:space-between;border-bottom:1px solid var(--border);padding:6px 0;">
+                <span style="color:var(--muted);">Close any open modal</span>
+                <kbd style="background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-lit);border-radius:3px;padding:2px 9px;font-size:11.5px;">Esc</kbd>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                <span style="color:var(--muted);">Show this cheatsheet</span>
+                <kbd style="background:var(--cyan-dim);color:var(--cyan);border:1px solid var(--border-lit);border-radius:3px;padding:2px 9px;font-size:11.5px;">?</kbd>
+            </div>
+        </div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:14px;line-height:1.7;">
+            // Shortcuts ignore typing in inputs.
         </div>
     </div>
 </div>
@@ -897,6 +946,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){
         document.querySelectorAll('.modal-bg.open').forEach(m=>m.classList.remove('open'));
         const d=document.getElementById('notifDrop');if(d)d.classList.remove('open');
+        const cs=document.getElementById('cheatModal');if(cs)cs.classList.remove('open');
     }
     if(e.key==='n'&&!e.ctrlKey&&!e.metaKey&&!typing){
         e.preventDefault();
@@ -905,6 +955,10 @@ document.addEventListener('keydown',e=>{
     }
     if(e.key==='r'&&!e.ctrlKey&&!e.metaKey&&!typing){
         window.open('/wireguard','_blank');
+    }
+    if(e.key==='?'&&!typing){
+        e.preventDefault();
+        document.getElementById('cheatModal').classList.add('open');
     }
 });
 
