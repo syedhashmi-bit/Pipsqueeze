@@ -1,0 +1,14 @@
+# Development / test dependencies — install with:
+#   pip install -r requirements-dev.txt
+#
+# Production deployments do NOT need these. requirements.txt covers the
+# runtime app; this file adds pytest + Playwright for the tests/ suite.
+
+-r requirements.txt
+
+greenlet==3.5.0
+playwright==1.59.0
+pyee==13.0.1
+pytest==9.0.3
+pytest-base-url==2.1.0
+pytest-playwright==0.7.2
