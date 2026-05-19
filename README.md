@@ -133,7 +133,7 @@ Before you begin, make sure you have:
 ### Step 1 — Clone the repository
 
 ```bash
-git clone https://github.com/syedhashmi-bit/pipsqueeze.git /var/www/pipsqueeze
+git clone https://github.com/syedhashmi-bit/Pipsqueeze.git /var/www/pipsqueeze
 cd /var/www/pipsqueeze
 ```
 
