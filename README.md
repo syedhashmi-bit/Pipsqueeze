@@ -42,6 +42,7 @@ PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks direct
 
 ### Security
 - **2FA** (TOTP) on every login, with failed-attempt rate limiting and IP lockout
+- **Per-user TOTP secrets** with one-click enrollment from the admin UI (encrypted at rest via Fernet); falls back to a shared env secret for accounts that haven't been migrated yet
 - Multi-user admin accounts with **role-based access** (admin / viewer)
 - **CSRF protection** on every state-changing route (Flask-WTF)
 - Secure cookies (HttpOnly + Secure + SameSite=Lax) and configurable session timeout
@@ -53,6 +54,11 @@ PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks direct
 - Discord, Email (SMTP), and Telegram channels — all optional, all togglable per event
 - Per-event toggles for: connect, disconnect, expiry, expiry reminder (3 days before), new client, delete, regen, quota exceeded, login failure, IP lockout, provision-link used
 - Weekly digest email with usage stats
+
+### Polish
+- **Seamless cross-page transitions** via the View Transitions API (Chrome/Edge/Safari) — same-origin navigations cross-fade instead of cutting; Firefox falls back to a normal navigation
+- Animated modal entries, slide-in toast notifications, and a thin cyan progress bar that runs during form submissions
+- Full `prefers-reduced-motion` respect
 
 ### Integrations
 - **REST API** (`/api/v1/*`) for external scripts and automation. SHA-256-hashed API keys with `read` / `write` scopes, sent via `Authorization: Bearer` or `X-API-Key`.
@@ -441,8 +447,8 @@ PipSqueeze ships with two test layers in `tests/`:
 
 | Layer | Purpose | Browser? | Apt deps? |
 |-------|---------|----------|-----------|
-| `tests/test_http_smoke.py` | Verifies CSRF, cookie flags, vault encryption, ipapi.co geolocation, sw.js versioning, import route, API key scopes, cheatsheet, uptime clamping, auto-cleanup helper | no | no |
-| `tests/test_ui_smoke.py` | Real Chromium walks login (TOTP), every protected page, the `?` cheatsheet shortcut, and the map regression | yes | yes |
+| `tests/test_http_smoke.py` (17 tests) | Verifies CSRF, cookie flags, vault encryption, ipapi.co geolocation, sw.js versioning, import route, API key scopes, cheatsheet, uptime clamping, auto-cleanup helper, **per-user TOTP encrypt round-trip + enrollment guard** | no | no |
+| `tests/test_ui_smoke.py` (23 tests) | Real Chromium walks login (TOTP), every protected page, the `?` cheatsheet shortcut, the map regression, **and the full RESET 2FA → enrollment QR → PERSONAL badge UI flow** | yes | yes |
 
 ```bash
 source venv/bin/activate
