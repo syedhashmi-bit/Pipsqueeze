@@ -4,6 +4,17 @@ This file tracks what has been built, what was fixed, and important decisions ma
 
 ---
 
+## 2026-06-05 — Easy install + lightweight pass
+
+- Added `install.sh`: guided, re-runnable installer. Checks prereqs (Python 3.10+, python3-venv, optional nginx/certbot/wireguard-tools), builds venv, auto-generates `SECRET_KEY`/`TOTP_SECRET`, prompts for required `.env` values (passwords hidden), writes `.env` at 0600, renders the 2FA QR in-terminal via `qrcode.print_ascii`, and optionally creates the `pipsqueeze` systemd unit + nginx site + certbot HTTPS. Backs up existing `.env`, never clobbers the service without a prompt.
+- Slimmed assets: `static/logo.png` and `static/og-image.png` re-encoded from 1024×1024/404KB to 512×512/13KB each (palette PNG, transparency kept). 512px chosen to stay valid as the PWA maskable icon. og-image is otherwise unreferenced in templates. Deleted stray untracked root `app.png`.
+- Service name standardized to `pipsqueeze` in README + CLAUDE.md; legacy deployments may still run the old `vpn-dashboard` unit (noted in both docs).
+- README: new Quick Start + "Quick install (recommended)" section; manual 9 steps kept as fallback.
+- `.gitignore`: added `.env.backup.*`.
+- Did NOT refactor `app.py` (3000-line monolith) — out of scope for an install/lightweight pass.
+
+---
+
 ## Current State (as of May 2026)
 
 ### Features Implemented
