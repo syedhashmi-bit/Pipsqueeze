@@ -13,7 +13,7 @@ PipSqueeze — a self-hosted WireGuard VPN management dashboard, like Tailscale 
 
 ## Deployment
 
-- **Service**: `vpn-dashboard` (gunicorn systemd unit)
+- **Service**: `pipsqueeze` (gunicorn systemd unit; created by `install.sh`). Legacy/existing deployments may still use the old unit name `vpn-dashboard` — check with `systemctl list-units | grep -E 'pipsqueeze|vpn-dashboard'` and use whichever exists.
 - **Project path**: `/var/www/pipsqueeze`
 - **VPS**: any Ubuntu host (domain, hosting provider, and VM size are deployer's choice)
 - **LAN subnet**: configurable via `LAN_SUBNET` env var (default `192.168.88.0/24` — MikroTik factory default)
@@ -23,10 +23,12 @@ PipSqueeze — a self-hosted WireGuard VPN management dashboard, like Tailscale 
 ## Service Commands
 
 ```bash
-systemctl restart vpn-dashboard                    # restart after editing app.py, mikrotik_api.py, or notifications.py
-systemctl status vpn-dashboard                     # check running state
-journalctl -u vpn-dashboard -n 50 --no-pager      # view recent errors
+systemctl restart pipsqueeze                       # restart after editing app.py, mikrotik_api.py, or notifications.py
+systemctl status pipsqueeze                        # check running state
+journalctl -u pipsqueeze -n 50 --no-pager         # view recent errors
 ```
+
+> On older deployments the unit may be named `vpn-dashboard`; substitute that name if `pipsqueeze` doesn't exist.
 
 HTML templates take effect immediately (Jinja2 reloads on request) — no restart needed.
 

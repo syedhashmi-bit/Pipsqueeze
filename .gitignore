@@ -1,5 +1,6 @@
 # Secrets & credentials
 .env
+.env.backup.*
 vpn_dashboard.db
 
 # Private keys & generated client files

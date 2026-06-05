@@ -69,6 +69,18 @@ PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks direct
 
 ---
 
+## Quick Start
+
+```bash
+git clone https://github.com/syedhashmi-bit/Pipsqueeze.git /var/www/pipsqueeze
+cd /var/www/pipsqueeze
+./install.sh
+```
+
+The guided installer handles the venv, secrets, `.env`, the 2FA QR (drawn right in your terminal), and optionally the systemd service, nginx, and HTTPS. It's interactive and safe to re-run. Set up the [MikroTik side](#step-4--set-up-mikrotik) first, then jump to [Installation](#installation) for the full walkthrough or per-step details.
+
+---
+
 ## Screenshots
 
 ### Login Page
@@ -129,6 +141,22 @@ Before you begin, make sure you have:
 ---
 
 ## Installation
+
+### Quick install (recommended)
+
+PipSqueeze ships with a guided installer that walks you through every step — prerequisites, virtualenv, secret generation, `.env`, the 2FA QR code (rendered right in your terminal), and optionally the systemd service, nginx, and HTTPS.
+
+```bash
+git clone https://github.com/syedhashmi-bit/Pipsqueeze.git /var/www/pipsqueeze
+cd /var/www/pipsqueeze
+./install.sh
+```
+
+The script is interactive and safe to re-run — it backs up an existing `.env` and never overwrites your service without asking. You still need to set up the MikroTik side first (see [Step 4 — Set up MikroTik](#step-4--set-up-mikrotik)); the installer prompts you for the values it produces (interface public key, API user, etc.).
+
+Prefer to do it by hand, or want to understand each piece? Follow the manual steps below.
+
+---
 
 ### Step 1 — Clone the repository
 
