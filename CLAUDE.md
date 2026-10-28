@@ -43,8 +43,8 @@ pip install <package>                              # install inside venv
 ## Git
 
 ```bash
-git remote                                         # origin → git@github.com:syedhashmi-bit/Pipsqueeze.git
-git push                                           # push to main (SSH key at ~/.ssh/id_ed25519)
+git remote                                         # origin → https://github.com/syedhashmi-bit/Pipsqueeze.git
+git push                                           # push to main (HTTPS, authed by the gh credential helper)
 ```
 
 ## Stack
