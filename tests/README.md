@@ -17,6 +17,17 @@ pytest tests/test_http_smoke.py -v
 
 These run in seconds and require no system packages beyond Python.
 
+## Monitor election tests (`test_monitor_lock.py`)
+
+Spawns real separate processes that import `app.py` from this checkout in a
+temp dir (throwaway DB, no `.env`) and checks that exactly one starts the
+monitor thread, that the next process takes over when the owner exits, and
+that separate directories don't block each other.
+
+```bash
+pytest tests/test_monitor_lock.py -v
+```
+
 ## Google sign-in tests (`test_google_auth.py`)
 
 In-process and offline: imports `app.py` from this checkout against a throwaway

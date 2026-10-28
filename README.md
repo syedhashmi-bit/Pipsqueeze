@@ -517,6 +517,7 @@ PipSqueeze ships with two test layers in `tests/`:
 | Layer | Purpose | Browser? | Apt deps? |
 |-------|---------|----------|-----------|
 | `tests/test_http_smoke.py` (17 tests) | Verifies CSRF, cookie flags, vault encryption, ipapi.co geolocation, sw.js versioning, import route, API key scopes, cheatsheet, uptime clamping, auto-cleanup helper, **per-user TOTP encrypt round-trip + enrollment guard** | no | no |
+| `tests/test_monitor_lock.py` (3 tests) | Only one process runs the background monitor (gunicorn imports `app.py` once per worker), and the next one takes over when the owner exits | no | no |
 | `tests/test_google_auth.py` (20 tests) | **Sign in with Google**, in-process and offline (throwaway DB, Google simulated with a test RSA key): redirect state/nonce/PKCE, admin/viewer roles, every refusal path (unlisted, unverified, wrong aud/iss, expired, forged signature, nonce, state, cancel), lockout, allowlist re-check on every request | no | no |
 | `tests/test_ui_smoke.py` (23 tests) | Real Chromium walks login (TOTP), every protected page, the `?` cheatsheet shortcut, the map regression, **and the full RESET 2FA → enrollment QR → PERSONAL badge UI flow** | yes | yes |
 

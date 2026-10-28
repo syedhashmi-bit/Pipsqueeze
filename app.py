@@ -7,7 +7,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
-import subprocess, os, re, sqlite3, qrcode, pyotp, shutil
+import subprocess, os, re, sqlite3, qrcode, pyotp, shutil, fcntl
 import secrets, zipfile, threading, time, psutil, csv, io, json, base64
 import urllib.request, urllib.error, urllib.parse, ipaddress, socket
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -805,8 +805,16 @@ _last_reminder_date = None
 _reminded_today     = set()
 _firewall_synced    = False
 _last_cleanup_date  = None
+# Only the worker that owns the monitor (see _claim_monitor_lock) fills these.
+# Other gunicorn workers see them empty, so they rely on the lat/lon the
+# monitor writes to the clients table on connect.
 _geo_cache      = {}   # ip -> geo dict or None
 _peer_endpoints = {}   # client_name -> latest endpoint_ip
+
+# Held open for the life of the monitor-owning process; closing it releases
+# the lock. Lives next to vpn_dashboard.db (both relative to the cwd).
+MONITOR_LOCK_FILE = ".monitor.lock"
+_monitor_lock_fd  = None
 
 _PRIVATE_PREFIXES = (
     ("10.",),
@@ -3111,8 +3119,43 @@ def admin_users_enroll(uid):
 # ─────────────────────────────────────────────
 
 init_db()
-monitor_thread = threading.Thread(target=_monitor_loop, daemon=True)
-monitor_thread.start()
+
+
+def _claim_monitor_lock():
+    """True in exactly one process per deployment.
+
+    gunicorn imports this module once per worker (-w 3 in production), and
+    every copy used to start its own monitor, each with its own _prev_traffic:
+    total_rx/total_tx grew by the same delta once per worker, and every alert
+    and the weekly digest went out once per worker. A non-blocking flock picks
+    one owner (same pattern as Protek's .poller.lock). The kernel drops the
+    lock when the owner exits, so the worker gunicorn spawns to replace it
+    takes the monitor over."""
+    global _monitor_lock_fd
+    try:
+        fd = os.open(MONITOR_LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError as e:
+        # Can't coordinate: better a duplicate monitor than none at all.
+        print(f"[monitor] can't open {MONITOR_LOCK_FILE} ({e}); starting without the lock")
+        return True
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    _monitor_lock_fd = fd
+    return True
+
+
+if _claim_monitor_lock():
+    monitor_thread = threading.Thread(target=_monitor_loop, daemon=True)
+    monitor_thread.start()
+    print(f"[monitor] started in pid {os.getpid()}")
+else:
+    monitor_thread = None
+    print(f"[monitor] already running in another process; not started in pid {os.getpid()}")
 
 if __name__ == "__main__":
     # Debug only enables itself when explicitly opted in via env, so

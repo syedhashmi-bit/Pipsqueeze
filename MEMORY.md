@@ -18,6 +18,14 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - `tests/test_google_auth.py` (20 tests): in-process, offline, throwaway DB, `load_dotenv` stubbed; Google simulated with a joserfc RSA key + stubbed token exchange, so Authlib's real signature/nonce/state/expiry checks run. Each refusal test was checked to fail for its own reason.
 - Prod venv now has Authlib (installed 2026-10-28 from this branch's `requirements.txt`; also pinned `joserfc==1.7.7`, Authlib's JOSE backend). Merged into local `main` on 2026-10-28 (not pushed); service still stopped on purpose.
 
+### Same day — monitor thread ran once per gunicorn worker
+
+- The live unit runs `gunicorn -w 3` without `--preload`, so all three workers imported `app.py` and each started `_monitor_loop()` with its own `_prev_traffic`/`_prev_states`. Every 30s the same delta was added to `total_rx`/`total_tx` three times. `uptime_log`/`ping_history`/`traffic_history` got 3 rows. Connect/disconnect/expiry/quota alerts, expiry reminders, the weekly digest and auto-cleanup ran three times. On each restart every worker re-sent a "connected" alert per online peer.
+- Fix: `_claim_monitor_lock()` at startup — non-blocking `fcntl.flock` on `.monitor.lock` (cwd, next to the DB; PID written inside; gitignored), same pattern as Protek's `.poller.lock`. Only the lock holder starts the thread; the others print `[monitor] already running…`. If the lock file can't be opened it fails open (starts the monitor) rather than run with none.
+- Verified with real `gunicorn -w 3`: one worker had the monitor thread; `kill -9` on it → gunicorn's replacement worker took the lock and started the monitor. `tests/test_monitor_lock.py` (3 tests) fails against the old code (every process reports OWNER).
+- Trade-off: `_peer_endpoints`/`_geo_cache` now only fill in the owner worker, so the dashboard/map 🌍 fallback (only used for clients with NULL lat/lon, i.e. geolocation failed at connect time) shows only on requests served by that worker. The monitor's DB lat/lon write on connect is unchanged. Persisting `endpoint_ip` to `clients` would remove this if it ever matters.
+- Historic `total_rx`/`total_tx` and row counts from before this fix are inflated (likely ~3×) and were not corrected.
+
 ---
 
 ## 2026-06-05 — Easy install + lightweight pass
@@ -153,6 +161,7 @@ This file tracks what has been built, what was fixed, and important decisions ma
 | Provision client-name suffix had ~18 bits of entropy (`token_urlsafe(3)` → 4 chars) | Switched to `secrets.token_hex(4)` (32 bits). |
 | CSV export allowed Excel formula injection | Cells starting with `=,+,-,@,\t,\r` are now prefixed with a single quote. |
 | Backup ZIP wrote decrypted Discord/SMTP/Telegram credentials into `notification_settings.json` | JSON now redacts the three secret fields; encrypted values still live in the DB row. |
+| Monitor thread ran once per gunicorn worker (`-w 3`) — traffic totals, history rows and alerts multiplied | `_claim_monitor_lock()`: `fcntl.flock` on `.monitor.lock`, only the holder starts `_monitor_loop()`; replacement worker takes over if the owner dies |
 
 ---
 

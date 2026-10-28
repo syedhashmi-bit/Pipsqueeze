@@ -2,6 +2,7 @@
 .env
 .env.backup.*
 vpn_dashboard.db
+.monitor.lock
 
 # Private keys & generated client files
 clients/

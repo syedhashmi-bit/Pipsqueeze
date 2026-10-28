@@ -96,6 +96,8 @@ git push                                           # push to main (SSH key at ~/
 
 The `_prev_states` and `_prev_traffic` module-level dicts must never be reset — they track state across loop iterations.
 
+Only **one process** runs the monitor: gunicorn (`-w 3` in production) imports `app.py` once per worker, so `_claim_monitor_lock()` takes a non-blocking `fcntl.flock` on `.monitor.lock` (next to the DB, in the cwd) and only the winner starts the thread. The kernel releases the lock when the owner exits, and the replacement worker takes over. Never start the monitor elsewhere without the lock: duplicates multiply `total_rx`/`total_tx` and every alert. In-memory monitor state (`_peer_endpoints`, `_geo_cache`) only exists in the owner worker, so request handlers must not depend on it.
+
 ### Traffic Delta Tracking
 
 MikroTik resets RX/TX counters on reboot. The monitor thread stores previous values in `_prev_traffic` and adds only the difference to `total_rx`/`total_tx` in the DB. `max(0, delta)` guards against negative values on router reboot.
