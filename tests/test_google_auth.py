@@ -376,3 +376,66 @@ def test_role_for_prefers_admin(pps, monkeypatch):
     assert google_auth.role_for("v@x.com") == "viewer"
     assert google_auth.role_for("nobody@x.com") is None
     assert google_auth.role_for(None) is None
+
+
+# ── Startup: password creds only required while Google is off ────────────────
+# app.py checks these at import time, so each case runs in a fresh process
+# (temp dir, throwaway DB, no .env read).
+
+_BOOT = r"""
+import sqlite3, sys
+import dotenv
+dotenv.load_dotenv = lambda *a, **k: False
+sys.path.insert(0, sys.argv[1])
+try:
+    import app
+except RuntimeError as e:
+    print("REFUSED:", e)
+else:
+    n = sqlite3.connect("vpn_dashboard.db").execute("SELECT COUNT(*) FROM admin_users").fetchone()[0]
+    print("STARTED admin_users=%d google=%s" % (n, app._google is not None))
+"""
+
+_GOOGLE_ENV = {
+    "GOOGLE_CLIENT_ID":     CLIENT_ID,
+    "GOOGLE_CLIENT_SECRET": "test-client-secret",
+    "GOOGLE_ADMIN_EMAILS":  ADMIN_EMAIL,
+}
+
+
+def _boot(tmp_path, extra):
+    import subprocess
+    drop = {"APP_USERNAME", "APP_PASSWORD", "TOTP_SECRET", "GOOGLE_CLIENT_ID",
+            "GOOGLE_CLIENT_SECRET", "GOOGLE_ADMIN_EMAILS", "GOOGLE_VIEWER_EMAILS"}
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update({"SECRET_KEY": "boot-test-secret", "COOKIE_INSECURE": "1",
+                "MT_HOST": "127.0.0.1", "MT_PORT": "9", **extra})
+    r = subprocess.run([sys.executable, "-I", "-c", _BOOT, REPO], cwd=tmp_path, env=env,
+                       capture_output=True, text=True, timeout=60)
+    lines = [l for l in r.stdout.splitlines() if l.startswith(("STARTED", "REFUSED"))]
+    assert lines, r.stdout + r.stderr
+    return lines[-1]
+
+
+def test_google_only_boots_without_password_creds_and_seeds_no_admin(tmp_path):
+    # No APP_USERNAME / APP_PASSWORD / TOTP_SECRET at all.
+    assert _boot(tmp_path, _GOOGLE_ENV) == "STARTED admin_users=0 google=True"
+
+
+def test_refuses_to_boot_without_password_creds_while_google_is_off(tmp_path):
+    out = _boot(tmp_path, {})
+    assert out.startswith("REFUSED: APP_USERNAME and APP_PASSWORD must be set")
+    out = _boot(tmp_path, {"APP_USERNAME": "admin", "APP_PASSWORD": "pw-xyz"})
+    assert out.startswith("REFUSED: TOTP_SECRET must be set")
+
+
+def test_half_configured_google_still_needs_password_creds(tmp_path):
+    # Secret missing → Google is off → the password creds are the login.
+    half = {k: v for k, v in _GOOGLE_ENV.items() if k != "GOOGLE_CLIENT_SECRET"}
+    assert _boot(tmp_path, half).startswith("REFUSED: APP_USERNAME and APP_PASSWORD")
+
+
+def test_seeds_admin_from_env_when_creds_are_set(tmp_path):
+    out = _boot(tmp_path, {"APP_USERNAME": "admin", "APP_PASSWORD": "pw-xyz",
+                           "TOTP_SECRET": LOCAL_TOTP})
+    assert out == "STARTED admin_users=1 google=False"

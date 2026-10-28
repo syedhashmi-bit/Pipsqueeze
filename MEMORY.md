@@ -21,10 +21,17 @@ This file tracks what has been built, what was fixed, and important decisions ma
 ### Same day — Google-only login (password + 2FA removed while Google is on)
 
 - Owner asked to drop the password + 2FA fallback. While Google sign-in is active (`_google is not None`), `/login` shows only the Google button; a password POST is refused **before** credentials are checked (no oracle, no lockout count; audit reason `Password login off (Google only)`); `session_source_error()` (replaces `google_session_ok()`) also clears any non-Google session → `/login?error=password_off`.
-- Kept on purpose: if Google isn't configured or Authlib is missing, the password + TOTP form is the login. Fresh installs don't need Google, and **clearing `GOOGLE_CLIENT_ID` + restart is the recovery path** if Google breaks. `APP_USERNAME`/`APP_PASSWORD`/`TOTP_SECRET` are still required at startup for that reason.
+- Kept on purpose: if Google isn't configured or Authlib is missing, the password + TOTP form is the login. Fresh installs don't need Google, and **clearing `GOOGLE_CLIENT_ID` + restart is the recovery path** if Google breaks. (Startup requirement for `APP_USERNAME`/`APP_PASSWORD`/`TOTP_SECRET` relaxed right after — see next entry.)
 - Admin → Users Google panel warns that the listed local users can't sign in while Google is on. Their CHANGE PW / RESET 2FA buttons still work (they matter again if Google is turned off).
 - API keys (`/api/v1/*`) are unaffected.
 - Tests: login page has no password/code inputs; valid password + TOTP POST refused; pre-existing password session signed out; with Google off the password login works end to end. The three Google-only tests fail against the previous commit.
+
+### Same day — 502 after going Google-only: startup demanded password creds
+
+- Owner removed `APP_USERNAME`/`APP_PASSWORD` (Google-only), started the service → every worker raised `RuntimeError: APP_USERNAME and APP_PASSWORD must be set` at import, gunicorn halted, nginx served 502.
+- Fix: the creds check moved from the top of `app.py` to STARTUP (just before `init_db()`) and only runs while `_google is None`. `init_db()` now seeds the env admin only when both creds are set — the old `os.getenv(..., "admin"/"changeme")` fallbacks are gone, so a Google-only boot can't plant a known-password admin that would go live if Google were switched off.
+- Recovery path is now: clear `GOOGLE_CLIENT_ID` **and** set the three creds, then restart (docs, `.env.example`, Admin → Users panel updated).
+- Tests (fresh processes): Google-only boot with no creds starts and seeds 0 admins; Google off without creds refuses; half-configured Google still needs creds; creds set → admin seeded. The Google-only boot test reproduces the journal error against the previous commit.
 
 ### Same day — monitor thread ran once per gunicorn worker
 

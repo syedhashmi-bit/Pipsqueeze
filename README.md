@@ -402,8 +402,9 @@ How it works:
 - The verified email must be on one of the two lists. An email on both gets admin. Anyone else goes back to `/login` with "That Google account isn't allowed". That counts toward the IP lockout like a bad password, fires the login-failure alert, and lands in the login audit as `Google: not_allowed`.
 - Google users get no `admin_users` row. Their role comes from `.env` and is re-checked on every request, so removing an email (or moving it to the viewer list) and restarting takes effect on that person's next click.
 - There is no TOTP prompt for Google users: 2-Step Verification on the Google account is the second factor, so turn it on. The IP whitelist and the login lockout still apply.
+- **No password credentials needed:** with Google sign-in on, `APP_USERNAME`, `APP_PASSWORD` and `TOTP_SECRET` can be left out of `.env`. The app starts without them and seeds no default admin.
 - **Google only:** while Google sign-in is on, `/login` shows just the Google button. A password + 2FA submission is refused without the credentials being checked (logged in the audit as `Password login off (Google only)`), and any password session from before the switch is signed out on its next request. The API keys under `/api/v1/` are unaffected.
-- **If Google breaks** (outage, revoked client, lost access to every allowed account): over SSH, clear `GOOGLE_CLIENT_ID` in `.env` and `systemctl restart pipsqueeze`. The Google button disappears and the password + 2FA form comes back for the `admin_users` accounts. Put the value back and restart to return to Google-only.
+- **If Google breaks** (outage, revoked client, lost access to every allowed account): over SSH, clear `GOOGLE_CLIENT_ID` in `.env`, make sure `APP_USERNAME`, `APP_PASSWORD` and `TOTP_SECRET` are set (the app refuses to start without them while Google is off), and `systemctl restart pipsqueeze`. The Google button disappears and the password + 2FA form comes back for the `admin_users` accounts. Put the value back and restart to return to Google-only.
 
 ---
 
@@ -415,9 +416,9 @@ All configuration lives in `.env`. Copy `.env.example` to get started.
 | Variable | Description |
 |----------|-------------|
 | `SECRET_KEY` | Flask session encryption key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
-| `APP_USERNAME` | Default admin login username (seeded into `admin_users` table on first boot) |
-| `APP_PASSWORD` | Default admin login password |
-| `TOTP_SECRET` | Base32 TOTP secret for 2FA (generate with `pyotp.random_base32()`) |
+| `APP_USERNAME` | Default admin login username (seeded into `admin_users` table on first boot). Optional while Google sign-in is configured |
+| `APP_PASSWORD` | Default admin login password. Optional while Google sign-in is configured |
+| `TOTP_SECRET` | Base32 TOTP secret for 2FA (generate with `pyotp.random_base32()`). Optional while Google sign-in is configured |
 | `SERVER_PUBLIC_KEY` | WireGuard public key of your MikroTik interface — written into every client `.conf` |
 | `SERVER_IP` | Your VPS public IP or domain — the `Endpoint` in client configs |
 | `SERVER_PORT` | WireGuard UDP listen port on MikroTik (usually `51820`) |

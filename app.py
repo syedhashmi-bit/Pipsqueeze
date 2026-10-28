@@ -98,12 +98,8 @@ def _inject_csrf():
 USERNAME          = os.getenv("APP_USERNAME")
 PASSWORD          = os.getenv("APP_PASSWORD")
 TOTP_SECRET       = os.getenv("TOTP_SECRET")
-# Refuse to start with empty/missing creds — otherwise the seeded admin
-# would default to the literal "changeme" password.
-if not USERNAME or not PASSWORD:
-    raise RuntimeError("APP_USERNAME and APP_PASSWORD must be set; refusing to start.")
-if not TOTP_SECRET:
-    raise RuntimeError("TOTP_SECRET is not set; refusing to start.")
+# These three are only required while Google sign-in is off — checked at
+# STARTUP below, once _google is known.
 SERVER_PUBLIC_KEY = os.getenv("SERVER_PUBLIC_KEY")
 SERVER_IP         = os.getenv("SERVER_IP")
 SERVER_PORT       = os.getenv("SERVER_PORT")
@@ -392,13 +388,14 @@ def init_db():
         )
     """)
 
-    # Seed default admin from .env (INSERT OR IGNORE is race-safe across workers)
-    default_user = os.getenv("APP_USERNAME", "admin")
-    default_pass = os.getenv("APP_PASSWORD", "changeme")
-    conn.execute(
-        "INSERT OR IGNORE INTO admin_users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
-        (default_user, generate_password_hash(default_pass), "admin", datetime.utcnow().isoformat())
-    )
+    # Seed default admin from .env (INSERT OR IGNORE is race-safe across workers).
+    # Unset creds are only allowed while Google sign-in is on: then seed
+    # nothing, rather than an admin whose password is a known default.
+    if USERNAME and PASSWORD:
+        conn.execute(
+            "INSERT OR IGNORE INTO admin_users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+            (USERNAME, generate_password_hash(PASSWORD), "admin", datetime.utcnow().isoformat())
+        )
 
     # Migrate clients table
     existing = [r[1] for r in conn.execute("PRAGMA table_info(clients)").fetchall()]
@@ -3133,6 +3130,18 @@ def admin_users_enroll(uid):
 # ─────────────────────────────────────────────
 # STARTUP
 # ─────────────────────────────────────────────
+
+# Password + TOTP is the login only while Google sign-in is off, so that's
+# when its credentials have to exist. With Google on they may be left out of
+# .env entirely (and no default admin is seeded).
+if _google is None:
+    if not USERNAME or not PASSWORD:
+        raise RuntimeError(
+            "APP_USERNAME and APP_PASSWORD must be set while Google sign-in is off "
+            "(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_ADMIN_EMAILS not all "
+            "set, or authlib missing); refusing to start.")
+    if not TOTP_SECRET:
+        raise RuntimeError("TOTP_SECRET must be set while Google sign-in is off; refusing to start.")
 
 init_db()
 

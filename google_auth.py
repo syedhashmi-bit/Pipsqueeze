@@ -29,10 +29,12 @@ is the second factor, as in the sibling apps.
 
 While Google sign-in is on it is the only way in: /login shows just the
 Google button, a password + TOTP POST is refused without checking it, and a
-password session from before the switch is signed out. If Google breaks,
-clear GOOGLE_CLIENT_ID in .env and restart: the button disappears, the
-routes send people back to /login with a "not configured" message, and the
-password + TOTP form returns.
+password session from before the switch is signed out. APP_USERNAME,
+APP_PASSWORD and TOTP_SECRET are then optional (app.py checks them at
+startup only while Google is off). If Google breaks, clear GOOGLE_CLIENT_ID
+in .env, make sure those three are set, and restart: the button disappears,
+the routes send people back to /login with a "not configured" message, and
+the password + TOTP form returns.
 
 No Flask import at module level, like notifications.py and vault.py.
 """

@@ -211,7 +211,7 @@
             <p>Google accounts are managed in <code>.env</code>, not on this page: <code>GOOGLE_ADMIN_EMAILS</code> / <code>GOOGLE_VIEWER_EMAILS</code> (comma-separated), plus <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>. Edit and restart the service. Removing an email signs that person out on their next click.</p>
             <p>Google sign-ins skip the TOTP prompt, so turn on 2-Step Verification for those Google accounts.</p>
             {% if google_active %}
-            <p class="sso-warn">While Google sign-in is on, password + 2FA login is switched off, so the users above can't sign in. If Google breaks, clear <code>GOOGLE_CLIENT_ID</code> in <code>.env</code> and restart to bring the password form back.</p>
+            <p class="sso-warn">While Google sign-in is on, password + 2FA login is switched off, so the users above can't sign in. If Google breaks, clear <code>GOOGLE_CLIENT_ID</code> in <code>.env</code>, make sure <code>APP_USERNAME</code>, <code>APP_PASSWORD</code> and <code>TOTP_SECRET</code> are set, and restart to bring the password form back.</p>
             {% else %}
             <p>Turning Google sign-in on switches password + 2FA login off, for the users above too.</p>
             {% endif %}
