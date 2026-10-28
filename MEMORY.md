@@ -9,7 +9,7 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - New `google_auth.py`, ported from Protek's Flask module (`/var/www/Protek/google_auth.py`): OIDC authorization-code flow via Authlib, `state` in the signed session cookie + `nonce` + PKCE S256, account chooser every time. Callback pins `iss` (both Google forms) **and `aud`** (Authlib only checks audience when `claims_options` names it — Protek's version passes only `iss`), requires `email_verified is True`.
 - Access is env-only: `GOOGLE_ADMIN_EMAILS` / `GOOGLE_VIEWER_EMAILS` (comma-separated, case-insensitive, admin wins if on both) + `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. Button shows only when all of client ID, secret and ≥1 email are set; a half-filled config logs `[google] sign-in disabled: …` at boot and shows on Admin → Users.
 - Google users get **no `admin_users` row** (emails can't collide with local usernames — those are `[a-zA-Z0-9_.-]`). Session carries `auth_source="google"`, `username`=email. New `google_session_ok()` in `login_required`/`admin_required` re-reads the allowlist every request → removing/demoting an email + restart lands on the next click.
-- No TOTP prompt for Google users (Google 2-Step Verification is the second factor). Password + TOTP form folds under "// use password + 2FA code instead" as break-glass; a failed POST keeps it unfolded.
+- No TOTP prompt for Google users (Google 2-Step Verification is the second factor). Password + TOTP form folds under "// use password + 2FA code instead" as break-glass; a failed POST keeps it unfolded. **Superseded the same day** — see "Google-only login" below.
 - `/auth/google` + callback go through the same IP whitelist + lockout gates. `not_allowed`/`unverified` count toward lockout and fire the `login_failure`/`login_locked` alerts (factored out of `login()` into `notify_login_failure()`); cancelled/expired round trips don't. Audit reasons: `Google` on success, `Google: <code>` on failure. `/login?error=` only renders codes from `google_auth.ERROR_MESSAGES`.
 - Admin → Users: read-only GOOGLE SIGN-IN panel (ON/OFF/MISCONFIGURED, exact redirect URI from `url_for(..., _external=True)`, allowlist table; never shows the secret).
 - `login.html` body `overflow: hidden` → `overflow-x: hidden`: the unfolded form is ~900px tall and was unscrollable on short screens.
@@ -17,6 +17,14 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - `install.sh` optionally prompts for the four `GOOGLE_*` values; `.env.example`, README (setup + config table), CLAUDE.md updated.
 - `tests/test_google_auth.py` (20 tests): in-process, offline, throwaway DB, `load_dotenv` stubbed; Google simulated with a joserfc RSA key + stubbed token exchange, so Authlib's real signature/nonce/state/expiry checks run. Each refusal test was checked to fail for its own reason.
 - Prod venv now has Authlib (installed 2026-10-28 from this branch's `requirements.txt`; also pinned `joserfc==1.7.7`, Authlib's JOSE backend). Merged into local `main` on 2026-10-28 (not pushed); service still stopped on purpose.
+
+### Same day — Google-only login (password + 2FA removed while Google is on)
+
+- Owner asked to drop the password + 2FA fallback. While Google sign-in is active (`_google is not None`), `/login` shows only the Google button; a password POST is refused **before** credentials are checked (no oracle, no lockout count; audit reason `Password login off (Google only)`); `session_source_error()` (replaces `google_session_ok()`) also clears any non-Google session → `/login?error=password_off`.
+- Kept on purpose: if Google isn't configured or Authlib is missing, the password + TOTP form is the login. Fresh installs don't need Google, and **clearing `GOOGLE_CLIENT_ID` + restart is the recovery path** if Google breaks. `APP_USERNAME`/`APP_PASSWORD`/`TOTP_SECRET` are still required at startup for that reason.
+- Admin → Users Google panel warns that the listed local users can't sign in while Google is on. Their CHANGE PW / RESET 2FA buttons still work (they matter again if Google is turned off).
+- API keys (`/api/v1/*`) are unaffected.
+- Tests: login page has no password/code inputs; valid password + TOTP POST refused; pre-existing password session signed out; with Google off the password login works end to end. The three Google-only tests fail against the previous commit.
 
 ### Same day — monitor thread ran once per gunicorn worker
 

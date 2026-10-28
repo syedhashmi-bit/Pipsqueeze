@@ -25,11 +25,14 @@ so dropping an email and restarting signs that person out on their next
 click, and a demotion lands the same way.
 
 TOTP is skipped for Google users: 2-Step Verification on the Google account
-is the second factor, as in the sibling apps. Break-glass: username +
-password + TOTP at /login keeps working whatever Google's state.
+is the second factor, as in the sibling apps.
 
-Unset GOOGLE_CLIENT_ID and the button disappears; the routes send people
-back to /login with a "not configured" message.
+While Google sign-in is on it is the only way in: /login shows just the
+Google button, a password + TOTP POST is refused without checking it, and a
+password session from before the switch is signed out. If Google breaks,
+clear GOOGLE_CLIENT_ID in .env and restart: the button disappears, the
+routes send people back to /login with a "not configured" message, and the
+password + TOTP form returns.
 
 No Flask import at module level, like notifications.py and vault.py.
 """
@@ -55,6 +58,7 @@ ERROR_MESSAGES = {
     "unverified": "That Google account's email isn't verified.",
     "not_allowed": "That Google account isn't allowed to sign in to PipSqueeze.",
     "failed": "Google sign-in failed. Try again.",
+    "password_off": "Password sign-in is off on this PipSqueeze. Sign in with Google.",
 }
 
 # Codes that mean "a real account was refused" — these count toward the IP

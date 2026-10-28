@@ -1166,19 +1166,28 @@ def touch_session():
     session["last_active"] = datetime.utcnow().isoformat()
 
 
-def google_session_ok():
-    """Google users have no admin_users row: their access is the .env
-    allowlist. Re-read it on every request so dropping an email (or moving it
-    to the viewer list) and restarting lands on that person's next click.
-    Returns False, with the session cleared, once they no longer have access."""
-    if session.get("auth_source") != "google":
-        return True
-    role = google_auth.role_for(session.get("username")) if _google is not None else None
-    if not role:
+def session_source_error():
+    """Re-check a signed-in session against the sign-in config on every
+    request. Returns None to carry on, or the /login?error= code to send the
+    user away with, after clearing the session.
+
+    - Google users have no admin_users row: their access is the .env
+      allowlist, re-read here so dropping an email (or moving it to the
+      viewer list) and restarting lands on that person's next click.
+    - While Google sign-in is on, password + 2FA login is off, so a password
+      session from before it was switched on doesn't outlive the switch."""
+    google_on = _google is not None
+    if session.get("auth_source") == "google":
+        role = google_auth.role_for(session.get("username")) if google_on else None
+        if not role:
+            session.clear()
+            return "not_allowed"
+        session["role"] = role
+        return None
+    if google_on:
         session.clear()
-        return False
-    session["role"] = role
-    return True
+        return "password_off"
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -1197,8 +1206,9 @@ def login_required(f):
             session.clear()
             flash("Session expired. Please log in again.")
             return redirect(url_for("login"))
-        if not google_session_ok():
-            return redirect(url_for("login", error="not_allowed"))
+        source_error = session_source_error()
+        if source_error:
+            return redirect(url_for("login", error=source_error))
         touch_session()
         return f(*args, **kwargs)
     return decorated
@@ -1216,8 +1226,9 @@ def admin_required(f):
             session.clear()
             flash("Session expired. Please log in again.")
             return redirect(url_for("login"))
-        if not google_session_ok():
-            return redirect(url_for("login", error="not_allowed"))
+        source_error = session_source_error()
+        if source_error:
+            return redirect(url_for("login", error=source_error))
         if session.get("role") != "admin":
             flash("Admin access required.")
             return redirect(url_for("home"))
@@ -1287,7 +1298,14 @@ def login():
     error = None
 
     if request.method == "POST":
-        if locked:
+        if _google is not None:
+            # Google sign-in is on, so password + 2FA login is off. The
+            # credentials aren't checked at all (no oracle), and a stale form
+            # doesn't count toward the lockout.
+            record_login_audit(ip, request.form.get("username", "").strip(), False,
+                               "Password login off (Google only)")
+            error = google_auth.ERROR_MESSAGES["password_off"]
+        elif locked:
             error = f"Locked out for {lockout_mins} more minute(s)."
         else:
             user = request.form.get("username", "").strip()
@@ -1338,9 +1356,7 @@ def login():
         error = google_auth.ERROR_MESSAGES.get(request.args.get("error") or "")
 
     return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins,
-                           google_configured=_google is not None,
-                           # A failed password attempt keeps that form unfolded.
-                           local_open=request.method == "POST")
+                           google_configured=_google is not None)
 
 
 def notify_login_failure(ip, user, reason):
@@ -1373,8 +1389,8 @@ def logout():
 # GOOGLE SIGN-IN (same model as Protek / Othoni / RiMM)
 # ─────────────────────────────────────────────
 # Access is a per-role email allowlist in .env (GOOGLE_ADMIN_EMAILS /
-# GOOGLE_VIEWER_EMAILS) — see google_auth.py. The password + TOTP form above
-# stays as the break-glass login.
+# GOOGLE_VIEWER_EMAILS) — see google_auth.py. While it's on, the password +
+# TOTP login above is refused; leave Google unconfigured to get it back.
 
 _google = google_auth.init_oauth(app)
 

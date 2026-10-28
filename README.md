@@ -42,7 +42,7 @@ PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks direct
 
 ### Security
 - **2FA** (TOTP) on every login, with failed-attempt rate limiting and IP lockout
-- Optional **Sign in with Google** (OIDC + PKCE) gated by a per-role email allowlist in `.env`, the same model as the sibling Protek / Othoni / RiMM dashboards; password + 2FA stays as break-glass
+- Optional **Sign in with Google** (OIDC + PKCE) gated by a per-role email allowlist in `.env`, the same model as the sibling Protek / Othoni / RiMM dashboards. While it's on, it's the only way in: password + 2FA login is switched off
 - **Per-user TOTP secrets** with one-click enrollment from the admin UI (encrypted at rest via Fernet); falls back to a shared env secret for accounts that haven't been migrated yet
 - Multi-user admin accounts with **role-based access** (admin / viewer)
 - **CSRF protection** on every state-changing route (Flask-WTF)
@@ -402,7 +402,8 @@ How it works:
 - The verified email must be on one of the two lists. An email on both gets admin. Anyone else goes back to `/login` with "That Google account isn't allowed". That counts toward the IP lockout like a bad password, fires the login-failure alert, and lands in the login audit as `Google: not_allowed`.
 - Google users get no `admin_users` row. Their role comes from `.env` and is re-checked on every request, so removing an email (or moving it to the viewer list) and restarting takes effect on that person's next click.
 - There is no TOTP prompt for Google users: 2-Step Verification on the Google account is the second factor, so turn it on. The IP whitelist and the login lockout still apply.
-- **Break-glass:** with Google configured, `/login` folds the password + 2FA form under "use password + 2FA code instead". It keeps working whatever Google's state.
+- **Google only:** while Google sign-in is on, `/login` shows just the Google button. A password + 2FA submission is refused without the credentials being checked (logged in the audit as `Password login off (Google only)`), and any password session from before the switch is signed out on its next request. The API keys under `/api/v1/` are unaffected.
+- **If Google breaks** (outage, revoked client, lost access to every allowed account): over SSH, clear `GOOGLE_CLIENT_ID` in `.env` and `systemctl restart pipsqueeze`. The Google button disappears and the password + 2FA form comes back for the `admin_users` accounts. Put the value back and restart to return to Google-only.
 
 ---
 
@@ -437,7 +438,7 @@ All configuration lives in `.env`. Copy `.env.example` to get started.
 | `COOKIE_INSECURE` | unset | Set to `1` only when running locally over plain HTTP (test harness, dev). In production leave unset so cookies are `Secure` |
 
 ### Optional — Google sign-in
-See [Sign in with Google](#optional--sign-in-with-google). All four unset = password + 2FA only.
+See [Sign in with Google](#optional--sign-in-with-google). All four unset = password + 2FA only; once set, Google is the only way in.
 
 | Variable | Default | Description |
 |----------|---------|-------------|

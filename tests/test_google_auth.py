@@ -16,11 +16,14 @@ Run with: pytest tests/test_google_auth.py -v
 """
 
 import os
+import re
 import sqlite3
 import sys
 import time
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
+import pyotp
 import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -29,6 +32,10 @@ CLIENT_ID = "test-client.apps.googleusercontent.com"
 ADMIN_EMAIL = "admin@example.com"
 VIEWER_EMAIL = "viewer@example.com"
 MAX_ATTEMPTS = 3
+# The env-seeded local admin: password + TOTP only works while Google is off.
+LOCAL_USER = "breakglass"
+LOCAL_PASS = "breakglass-pass-xyz"
+LOCAL_TOTP = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
 
 # The ID token the stubbed token endpoint returns next; set per test.
 _next_id_token = {}
@@ -50,9 +57,9 @@ def pps(tmp_path_factory):
     mp.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
     for k, v in {
         "SECRET_KEY":           "test-secret-key-for-google-sign-in-tests",
-        "APP_USERNAME":         "breakglass",
-        "APP_PASSWORD":         "breakglass-pass-xyz",
-        "TOTP_SECRET":          "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+        "APP_USERNAME":         LOCAL_USER,
+        "APP_PASSWORD":         LOCAL_PASS,
+        "TOTP_SECRET":          LOCAL_TOTP,
         "COOKIE_INSECURE":      "1",
         "IP_WHITELIST":         "",
         "MAX_LOGIN_ATTEMPTS":   str(MAX_ATTEMPTS),
@@ -137,6 +144,15 @@ def _error_code(r):
     return parse_qs(loc.query).get("error", [None])[0]
 
 
+def _password_login(client):
+    """POST valid local-admin credentials + a current TOTP code."""
+    html = client.get("/login").get_data(as_text=True)
+    token = re.search(r'name="csrf-token" content="([^"]+)"', html).group(1)
+    return client.post("/login", data={
+        "csrf_token": token, "username": LOCAL_USER, "password": LOCAL_PASS,
+        "code": pyotp.TOTP(LOCAL_TOTP).now()})
+
+
 def _db(sql, *args):
     db = sqlite3.connect("vpn_dashboard.db")
     try:
@@ -147,13 +163,35 @@ def _db(sql, *args):
 
 # ── Login page ───────────────────────────────────────────────────────────────
 
-def test_login_page_shows_google_button_and_folds_password_form(client):
+def test_login_page_is_google_only(client):
     html = client.get("/login").get_data(as_text=True)
     assert 'href="/auth/google"' in html
     assert "SIGN IN WITH GOOGLE" in html
-    # Break-glass form still there, folded (not open) on a plain GET.
-    assert '<details class="alt-login">' in html
-    assert 'name="code"' in html
+    assert 'name="password"' not in html
+    assert 'name="code"' not in html
+    assert '<form method="post"' not in html
+
+
+def test_password_login_is_refused_while_google_is_on(client):
+    r = _password_login(client)
+    assert r.status_code == 200
+    assert "Password sign-in is off on this PipSqueeze" in r.get_data(as_text=True)
+    with client.session_transaction() as s:
+        assert not s.get("logged_in")
+    # Refused before the credentials are checked: a stale form isn't a guess.
+    assert _db("SELECT * FROM login_attempts") == []
+    rows = _db("SELECT username, success, reason FROM login_audit ORDER BY id DESC LIMIT 1")
+    assert rows == [(LOCAL_USER, 0, "Password login off (Google only)")]
+
+
+def test_password_session_is_signed_out_while_google_is_on(client):
+    # A session from before Google sign-in was switched on.
+    with client.session_transaction() as s:
+        s.update(logged_in=True, username=LOCAL_USER, role="admin",
+                 last_active=datetime.utcnow().isoformat())
+    assert _error_code(client.get("/")) == "password_off"
+    with client.session_transaction() as s:
+        assert not s.get("logged_in")
 
 
 def test_login_page_renders_only_known_error_codes(client):
@@ -278,10 +316,16 @@ def test_cancel_at_google(client):
     assert _db("SELECT * FROM login_attempts") == []
 
 
-def test_not_configured_bounces_to_login(pps, client, monkeypatch):
+def test_not_configured_falls_back_to_password_login(pps, client, monkeypatch):
     monkeypatch.setattr(pps, "_google", None)
     assert _error_code(client.get("/auth/google")) == "not_configured"
-    assert "SIGN IN WITH GOOGLE" not in client.get("/login").get_data(as_text=True)
+    html = client.get("/login").get_data(as_text=True)
+    assert "SIGN IN WITH GOOGLE" not in html
+    assert 'name="password"' in html and 'name="code"' in html
+    # With Google off, password + TOTP is how you get back in.
+    r = _password_login(client)
+    assert r.status_code == 302 and urlparse(r.headers["Location"]).path == "/"
+    assert client.get("/").status_code == 200
 
 
 # ── Allowlist re-checked on every request ────────────────────────────────────
