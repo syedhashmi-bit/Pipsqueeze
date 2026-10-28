@@ -72,6 +72,12 @@
         .field input:focus,.field select:focus{outline:none;border-color:var(--border-lit);}
         .modal-actions{display:flex;gap:10px;margin-top:20px;}
         .modal-actions .btn{flex:1;justify-content:center;}
+        .sso-body{padding:16px 18px;font-family:var(--mono);font-size:12px;color:var(--muted-mid);line-height:1.7;}
+        .sso-body p{margin-bottom:10px;}
+        .sso-body code{color:var(--cyan);word-break:break-all;}
+        .sso-warn{color:var(--yellow);}
+        .sso-label{font-size:10px;letter-spacing:.15em;color:var(--muted);margin-bottom:4px;}
+        .sso-url{background:#040a10;border:1px solid var(--border);border-radius:3px;padding:9px 11px;margin-bottom:14px;color:var(--cyan);word-break:break-all;}
     </style>
 </head>
 <body>
@@ -161,6 +167,50 @@
             {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <!-- Google sign-in: read-only view of the .env allowlist (google_auth.py) -->
+    <div class="panel">
+        <div class="panel-head">
+            <span class="panel-title">GOOGLE SIGN-IN</span>
+            {% if google_active %}
+            <span class="badge badge-2fa-personal">ON</span>
+            {% elif google.problems %}
+            <span class="badge badge-2fa-shared">MISCONFIGURED</span>
+            {% else %}
+            <span class="badge badge-viewer">OFF</span>
+            {% endif %}
+        </div>
+        <div class="sso-body">
+            {% for p in google.problems %}
+            <p class="sso-warn">⚠ {{ p }}</p>
+            {% endfor %}
+            {% if google.configured and not google_active %}
+            <p class="sso-warn">⚠ Configured, but the authlib package isn't installed — run <code>pip install -r requirements.txt</code> in the venv and restart.</p>
+            {% endif %}
+            <div class="sso-label">AUTHORIZED REDIRECT URI (Google Cloud Console → OAuth client)</div>
+            <div class="sso-url">{{ google_callback_url }}</div>
+            {% if google.emails.admin or google.emails.viewer %}
+            <table style="margin-bottom:14px;">
+                <thead><tr><th>GOOGLE ACCOUNT</th><th>ROLE</th></tr></thead>
+                <tbody>
+                {% for role in ['admin', 'viewer'] %}
+                {% for email in google.emails[role] %}
+                <tr>
+                    <td>
+                        <span style="font-family:var(--mono);font-size:13px;">{{ email }}</span>
+                        {% if email == current_user %}<span class="badge badge-you">YOU</span>{% endif %}
+                    </td>
+                    <td><span class="badge {% if role == 'admin' %}badge-admin{% else %}badge-viewer{% endif %}">{{ role|upper }}</span></td>
+                </tr>
+                {% endfor %}
+                {% endfor %}
+                </tbody>
+            </table>
+            {% endif %}
+            <p>Google accounts are managed in <code>.env</code>, not on this page: <code>GOOGLE_ADMIN_EMAILS</code> / <code>GOOGLE_VIEWER_EMAILS</code> (comma-separated), plus <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code>. Edit and restart the service. Removing an email signs that person out on their next click.</p>
+            <p>Google sign-ins skip the TOTP prompt, so turn on 2-Step Verification for those Google accounts. The users above keep their password + 2FA login as break-glass.</p>
+        </div>
     </div>
 </div>
 

@@ -17,6 +17,20 @@ pytest tests/test_http_smoke.py -v
 
 These run in seconds and require no system packages beyond Python.
 
+## Google sign-in tests (`test_google_auth.py`)
+
+In-process and offline: imports `app.py` from this checkout against a throwaway
+DB in a temp dir (no production DB copy, no `.env` read), with Google simulated
+by a test RSA key. Covers the redirect (state, nonce, PKCE), admin/viewer
+sign-in, refusals (unlisted, unverified, wrong audience/issuer, expired, forged
+signature, wrong nonce, mismatched state, cancel), lockout, and the per-request
+allowlist re-check (removal and demotion).
+
+```bash
+pip install -r requirements.txt pytest
+pytest tests/test_google_auth.py -v
+```
+
 ## 2. Playwright UI smoke tests (`test_ui_smoke.py`)
 
 Real browser tests that drive the full UI. Checks login flow with TOTP, page

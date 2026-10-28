@@ -42,6 +42,7 @@ PipSqueeze is a self-hosted WireGuard VPN management dashboard that talks direct
 
 ### Security
 - **2FA** (TOTP) on every login, with failed-attempt rate limiting and IP lockout
+- Optional **Sign in with Google** (OIDC + PKCE) gated by a per-role email allowlist in `.env`, the same model as the sibling Protek / Othoni / RiMM dashboards; password + 2FA stays as break-glass
 - **Per-user TOTP secrets** with one-click enrollment from the admin UI (encrypted at rest via Fernet); falls back to a shared env secret for accounts that haven't been migrated yet
 - Multi-user admin accounts with **role-based access** (admin / viewer)
 - **CSRF protection** on every state-changing route (Flask-WTF)
@@ -373,6 +374,36 @@ Visit `https://YOUR_DOMAIN` in your browser.
 
 You're in. Create your first WireGuard client from the dashboard.
 
+### Optional — Sign in with Google
+
+PipSqueeze can put a **Sign in with Google** button on `/login`. A per-role email allowlist in `.env` decides who gets in and with which role. It works the same way as Protek, Othoni and RiMM.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), go to **APIs & Services → Credentials → Create credentials → OAuth client ID**, type **Web application**. You can reuse the Google Cloud project you set up for Protek, Othoni or RiMM: add a new client there. If the consent screen is in *Testing*, add yourself as a test user.
+2. Add this **Authorized redirect URI**. **Admin → Users** shows the exact value for your host:
+
+   ```
+   https://YOUR_DOMAIN/auth/google/callback
+   ```
+
+3. Add the client and the allowlist to `.env`:
+
+   ```bash
+   GOOGLE_CLIENT_ID=<id>.apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=<secret>
+   GOOGLE_ADMIN_EMAILS=you@example.com       # comma-separated
+   GOOGLE_VIEWER_EMAILS=                     # optional, read-only
+   ```
+
+4. `systemctl restart pipsqueeze`. The button appears once the client ID, the secret and at least one email are set. If the config is only half filled, the app logs a warning at boot and the **Admin → Users** page shows the problem.
+
+How it works:
+
+- `/auth/google` sends the browser to Google's account chooser with a random `state` (held in the signed session cookie), a `nonce` and a PKCE S256 challenge. `/auth/google/callback` swaps the code for an ID token server-to-server. Authlib checks the token's signature against Google's published keys, plus its expiry and nonce. PipSqueeze also pins the issuer and the audience (its own client ID) and requires `email_verified`.
+- The verified email must be on one of the two lists. An email on both gets admin. Anyone else goes back to `/login` with "That Google account isn't allowed". That counts toward the IP lockout like a bad password, fires the login-failure alert, and lands in the login audit as `Google: not_allowed`.
+- Google users get no `admin_users` row. Their role comes from `.env` and is re-checked on every request, so removing an email (or moving it to the viewer list) and restarting takes effect on that person's next click.
+- There is no TOTP prompt for Google users: 2-Step Verification on the Google account is the second factor, so turn it on. The IP whitelist and the login lockout still apply.
+- **Break-glass:** with Google configured, `/login` folds the password + 2FA form under "use password + 2FA code instead". It keeps working whatever Google's state.
+
 ---
 
 ## Configuration Reference
@@ -404,6 +435,16 @@ All configuration lives in `.env`. Copy `.env.example` to get started.
 | `SESSION_TIMEOUT_MIN` | `30` | Inactivity timeout before auto-logout |
 | `IP_WHITELIST` | *(allow all)* | Comma-separated IPs allowed to access the dashboard. Blank = no restriction |
 | `COOKIE_INSECURE` | unset | Set to `1` only when running locally over plain HTTP (test harness, dev). In production leave unset so cookies are `Secure` |
+
+### Optional — Google sign-in
+See [Sign in with Google](#optional--sign-in-with-google). All four unset = password + 2FA only.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GOOGLE_CLIENT_ID` | unset | OAuth client ID (`<id>.apps.googleusercontent.com`) |
+| `GOOGLE_CLIENT_SECRET` | unset | OAuth client secret |
+| `GOOGLE_ADMIN_EMAILS` | unset | Comma-separated Google account emails allowed in as **admin** |
+| `GOOGLE_VIEWER_EMAILS` | unset | Comma-separated Google account emails allowed in as **viewer** (read-only) |
 
 ### Optional — MikroTik & networking
 | Variable | Default | Description |
@@ -476,6 +517,7 @@ PipSqueeze ships with two test layers in `tests/`:
 | Layer | Purpose | Browser? | Apt deps? |
 |-------|---------|----------|-----------|
 | `tests/test_http_smoke.py` (17 tests) | Verifies CSRF, cookie flags, vault encryption, ipapi.co geolocation, sw.js versioning, import route, API key scopes, cheatsheet, uptime clamping, auto-cleanup helper, **per-user TOTP encrypt round-trip + enrollment guard** | no | no |
+| `tests/test_google_auth.py` (20 tests) | **Sign in with Google**, in-process and offline (throwaway DB, Google simulated with a test RSA key): redirect state/nonce/PKCE, admin/viewer roles, every refusal path (unlisted, unverified, wrong aud/iss, expired, forged signature, nonce, state, cancel), lockout, allowlist re-check on every request | no | no |
 | `tests/test_ui_smoke.py` (23 tests) | Real Chromium walks login (TOTP), every protected page, the `?` cheatsheet shortcut, the map regression, **and the full RESET 2FA → enrollment QR → PERSONAL badge UI flow** | yes | yes |
 
 ```bash
@@ -493,7 +535,7 @@ pytest tests/test_ui_smoke.py -v
 pytest tests/ -v
 ```
 
-Both suites spawn an isolated test instance on port 5050 with a copy of the production DB and deterministic 2FA credentials — they never touch the live service or its database.
+The HTTP and UI suites spawn an isolated test instance on port 5050 with a copy of the production DB and deterministic 2FA credentials — they never touch the live service or its database. The Google suite runs in-process against a throwaway DB and never reads `.env` or the production DB.
 
 ---
 
@@ -568,7 +610,7 @@ journalctl -u pipsqueeze -f
 | Backend | Python 3.12, Flask, SQLite |
 | Router API | RouterOS-api (MikroTik) |
 | Frontend | Jinja2 server-rendered HTML, Chart.js sparklines, Leaflet.js + CartoDB Dark Matter tiles |
-| Auth | pyotp (TOTP 2FA), Werkzeug scrypt password hashes, rate limiting, session timeout |
+| Auth | pyotp (TOTP 2FA), Werkzeug scrypt password hashes, Authlib (optional Google OIDC sign-in), rate limiting, session timeout |
 | Security | Flask-WTF (CSRF), `cryptography` Fernet/MultiFernet (at-rest encryption), Secure/HttpOnly/SameSite cookies, optional IP whitelist, full login audit |
 | API | SHA-256-hashed keys, `Authorization: Bearer` / `X-API-Key`, scoped read/write under `/api/v1/` |
 | Server | Gunicorn, Nginx, Ubuntu |

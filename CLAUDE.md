@@ -52,7 +52,7 @@ git push                                           # push to main (SSH key at ~/
 - **Backend**: Python 3.12, Flask, SQLite (`vpn_dashboard.db`)
 - **MikroTik**: `routeros_api` library → `mikrotik_api.py`
 - **Frontend**: Jinja2 server-rendered HTML; JS only for live updates (`/peers` polls every 5s), Chart.js sparklines, Leaflet.js map
-- **Auth**: Username/password + TOTP 2FA (pyotp), rate limiting, session timeout, IP whitelist
+- **Auth**: Username/password + TOTP 2FA (pyotp), optional Sign in with Google (Authlib OIDC, `.env` email allowlist — same model as Protek/Othoni/RiMM), rate limiting, session timeout, IP whitelist
 - **Notifications**: Discord webhook, SMTP email, Telegram bot — `notifications.py`
 - **Design**: Tactical dark NOC aesthetic — electric cyan `#00c8ff`, neon green `#00ff9d`, deep navy background, Rajdhani + Share Tech Mono fonts from Google Fonts
 
@@ -65,6 +65,7 @@ git push                                           # push to main (SSH key at ~/
 | `app.py` | Flask app, all routes, background monitor thread |
 | `mikrotik_api.py` | RouterOS API wrapper — connect, get_peers, add/delete/rename/enable/disable peers |
 | `notifications.py` | Discord/Email/Telegram sender; no Flask dependency, safe to import from both routes and thread |
+| `google_auth.py` | Sign in with Google — OIDC + PKCE via Authlib, `GOOGLE_*_EMAILS` allowlist → role; no Flask import at module level |
 | `templates/login.html` | 2FA login page with rate limiting lockout display |
 | `templates/index.html` | Main dashboard — create clients, manage list, stats, modals |
 | `templates/wireguard.html` | Live peers page — ping, uptime, traffic sparklines, expand rows |
@@ -120,6 +121,7 @@ Each client has a unique `portal_token`. Clients visit `/portal/<token>` to down
 - Rate limiting: `MAX_LOGIN_ATTEMPTS` failed attempts trigger lockout for `LOCKOUT_MINUTES`
 - Session timeout: `SESSION_TIMEOUT_MIN` inactivity → auto-logout
 - IP whitelist: `IP_WHITELIST` env var (comma-separated); blank = allow all
+- Google sign-in (optional): `/auth/google` → `/auth/google/callback`. Access = `GOOGLE_ADMIN_EMAILS` / `GOOGLE_VIEWER_EMAILS` in `.env`; Google users get **no** `admin_users` row (session `auth_source="google"`, `username` = email) and `google_session_ok()` re-checks the allowlist on every request in `login_required`/`admin_required`. No TOTP prompt for Google users; password + TOTP stays as break-glass. Refused accounts count toward the IP lockout. Pass `aud` in `claims_options` — Authlib skips the audience check otherwise
 - All security events logged to `login_audit` table
 
 ### Pages & API Routes
@@ -133,6 +135,8 @@ Each client has a unique `portal_token`. Clients visit `/portal/<token>` to down
 | `/weekly-report` | Weekly usage and uptime summary |
 | `/map` | Geographic client distribution (Leaflet.js) |
 | `/logs` | Full paginated activity log |
+| `/auth/google` | Start Sign in with Google (redirects to Google) |
+| `/auth/google/callback` | Google OIDC callback — verifies ID token, checks allowlist, logs in |
 | `/portal/<token>` | Client self-serve (no login required) |
 | `/peers` | JSON — live peer list from MikroTik |
 | `/api/sys` | JSON — CPU, RAM, disk, uptime |
@@ -184,6 +188,12 @@ MAX_LOGIN_ATTEMPTS=5
 LOCKOUT_MINUTES=15
 SESSION_TIMEOUT_MIN=30
 IP_WHITELIST=
+
+# Google sign-in (optional — all blank = password + 2FA only)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_ADMIN_EMAILS=
+GOOGLE_VIEWER_EMAILS=
 
 # Notifications (optional)
 WEEKLY_DIGEST_DAY=monday

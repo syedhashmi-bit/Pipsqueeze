@@ -13,6 +13,7 @@ import urllib.request, urllib.error, urllib.parse, ipaddress, socket
 from werkzeug.security import generate_password_hash, check_password_hash
 import notifications as notif
 import vault
+import google_auth
 
 load_dotenv()
 
@@ -1157,6 +1158,21 @@ def touch_session():
     session["last_active"] = datetime.utcnow().isoformat()
 
 
+def google_session_ok():
+    """Google users have no admin_users row: their access is the .env
+    allowlist. Re-read it on every request so dropping an email (or moving it
+    to the viewer list) and restarting lands on that person's next click.
+    Returns False, with the session cleared, once they no longer have access."""
+    if session.get("auth_source") != "google":
+        return True
+    role = google_auth.role_for(session.get("username")) if _google is not None else None
+    if not role:
+        session.clear()
+        return False
+    session["role"] = role
+    return True
+
+
 # ─────────────────────────────────────────────
 # AUTH
 # ─────────────────────────────────────────────
@@ -1173,6 +1189,8 @@ def login_required(f):
             session.clear()
             flash("Session expired. Please log in again.")
             return redirect(url_for("login"))
+        if not google_session_ok():
+            return redirect(url_for("login", error="not_allowed"))
         touch_session()
         return f(*args, **kwargs)
     return decorated
@@ -1190,6 +1208,8 @@ def admin_required(f):
             session.clear()
             flash("Session expired. Please log in again.")
             return redirect(url_for("login"))
+        if not google_session_ok():
+            return redirect(url_for("login", error="not_allowed"))
         if session.get("role") != "admin":
             flash("Admin access required.")
             return redirect(url_for("home"))
@@ -1301,21 +1321,36 @@ def login():
                 record_login_audit(ip, user, False, "Bad credentials")
                 error = "Invalid username or password."
                 reason = "Bad credentials"
-            locked, lockout_mins = is_locked_out(ip)
-            # Get current attempt count for notification
-            attempt_row = get_lockout_record(ip)
-            attempt_count = attempt_row["attempts"] if attempt_row else 1
-            notif.send_notification("login_failure",
-                f"Failed login attempt from {ip} "
-                f"(attempt {attempt_count} of {MAX_LOGIN_ATTEMPTS}). "
-                f"Username tried: '{user}'. Reason: {reason}.")
+            locked, lockout_mins = notify_login_failure(ip, user, reason)
             if locked:
                 error = f"Too many failed attempts. Locked for {lockout_mins} minute(s)."
-                notif.send_notification("login_locked",
-                    f"IP {ip} has been locked out after {MAX_LOGIN_ATTEMPTS} "
-                    f"failed login attempts. Locked for {LOCKOUT_MINUTES} minutes.")
+    else:
+        # The Google callback lands here with ?error=<code>. Only known codes
+        # render, so the query string can't put text on the page.
+        error = google_auth.ERROR_MESSAGES.get(request.args.get("error") or "")
 
-    return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins)
+    return render_template("login.html", error=error, locked=locked, lockout_mins=lockout_mins,
+                           google_configured=_google is not None,
+                           # A failed password attempt keeps that form unfolded.
+                           local_open=request.method == "POST")
+
+
+def notify_login_failure(ip, user, reason):
+    """Send the login_failure (and, once the IP tips over, login_locked)
+    alerts for an attempt already recorded. Returns is_locked_out(ip)."""
+    locked, lockout_mins = is_locked_out(ip)
+    # Get current attempt count for notification
+    attempt_row = get_lockout_record(ip)
+    attempt_count = attempt_row["attempts"] if attempt_row else 1
+    notif.send_notification("login_failure",
+        f"Failed login attempt from {ip} "
+        f"(attempt {attempt_count} of {MAX_LOGIN_ATTEMPTS}). "
+        f"Username tried: '{user}'. Reason: {reason}.")
+    if locked:
+        notif.send_notification("login_locked",
+            f"IP {ip} has been locked out after {MAX_LOGIN_ATTEMPTS} "
+            f"failed login attempts. Locked for {LOCKOUT_MINUTES} minutes.")
+    return locked, lockout_mins
 
 
 @app.route("/logout")
@@ -1324,6 +1359,72 @@ def logout():
     add_log(f"Logout from {ip}")
     session.clear()
     return redirect(url_for("login"))
+
+
+# ─────────────────────────────────────────────
+# GOOGLE SIGN-IN (same model as Protek / Othoni / RiMM)
+# ─────────────────────────────────────────────
+# Access is a per-role email allowlist in .env (GOOGLE_ADMIN_EMAILS /
+# GOOGLE_VIEWER_EMAILS) — see google_auth.py. The password + TOTP form above
+# stays as the break-glass login.
+
+_google = google_auth.init_oauth(app)
+
+
+def _google_gate():
+    """Same gates as the password form: IP whitelist, then lockout. Returns
+    a response to send instead, or None to carry on."""
+    ip = get_client_ip()
+    if not is_ip_allowed(ip):
+        return render_template("blocked.html", reason="Your IP is not whitelisted.", ip=ip), 403
+    if is_locked_out(ip)[0]:
+        return redirect(url_for("login"))  # the login page shows the lockout
+    if _google is None:
+        return redirect(url_for("login", error="not_configured"))
+    return None
+
+
+def _google_failed(ip, e):
+    print(f"[google] sign-in failed ({e.code}) from {ip}: {e}")
+    record_login_audit(ip, e.email or "(google)", False, f"Google: {e.code}")
+    # A refused account counts toward the lockout like a bad password. A
+    # cancelled or expired round trip is a hiccup, not an attempt.
+    if e.code in google_auth.REFUSED_CODES:
+        record_failed_attempt(ip)
+        notify_login_failure(ip, e.email or "(google)", f"Google: {e.code}")
+    return redirect(url_for("login", error=e.code))
+
+
+@app.route("/auth/google")
+def google_login():
+    blocked = _google_gate()
+    if blocked is not None:
+        return blocked
+    return google_auth.begin(_google, url_for("google_callback", _external=True))
+
+
+@app.route("/auth/google/callback")
+def google_callback():
+    blocked = _google_gate()
+    if blocked is not None:
+        return blocked
+    ip = get_client_ip()
+    try:
+        who = google_auth.complete(_google, request.args)
+    except google_auth.GoogleSignInError as e:
+        return _google_failed(ip, e)
+    clear_attempts(ip)
+    # Defeat session fixation, as in login().
+    session.clear()
+    session["logged_in"]   = True
+    session["last_active"] = datetime.utcnow().isoformat()
+    session["login_ip"]    = ip
+    session["username"]    = who["email"]
+    session["role"]        = who["role"]
+    session["auth_source"] = "google"
+    record_login_audit(ip, who["email"], True, "Google")
+    add_log(f"Google login ({who['email']}) from {ip}")
+    return redirect(url_for("home"))
 
 
 # ─────────────────────────────────────────────
@@ -2838,7 +2939,10 @@ def admin_users_page():
     return render_template("admin_users.html", users=users,
                            current_user=session.get("username"),
                            current_role=session.get("role"),
-                           has_personal_2fa=has_personal_2fa)
+                           has_personal_2fa=has_personal_2fa,
+                           google=google_auth.status(),
+                           google_active=_google is not None,
+                           google_callback_url=url_for("google_callback", _external=True))
 
 
 @app.route("/admin/users/add", methods=["POST"])
