@@ -15,6 +15,7 @@ Run with: pytest tests/test_monitor_lock.py -v
 import os
 import subprocess
 import sys
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,6 +40,18 @@ ENV = {
     "MT_HOST":           "127.0.0.1",
     "MT_PORT":           "9",
 }
+
+
+# Imports the app and then just waits: nothing here flushes stdout, so any
+# line the test sees came through the app's own buffering.
+QUIET_LAUNCHER = r"""
+import sys
+import dotenv
+dotenv.load_dotenv = lambda *a, **k: False
+sys.path.insert(0, sys.argv[1])
+import app
+sys.stdin.read()
+"""
 
 
 def _spawn(workdir):
@@ -115,3 +128,31 @@ def test_separate_deployments_dont_block_each_other(tmp_path):
             assert who == "OWNER"
     finally:
         _stop(procs)
+
+
+def test_log_lines_reach_a_pipe_while_the_process_runs(tmp_path):
+    # Under systemd stdout is a pipe. The [monitor] line must arrive while the
+    # worker is alive, not sit in a buffer until it exits.
+    import queue
+    import threading
+    p = subprocess.Popen(
+        [sys.executable, "-I", "-c", QUIET_LAUNCHER, REPO],
+        cwd=tmp_path, env={**os.environ, **ENV}, text=True,
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    )
+    lines = queue.Queue()
+    threading.Thread(target=lambda: [lines.put(l) for l in p.stdout], daemon=True).start()
+    try:
+        deadline = time.time() + 20
+        got = None
+        while time.time() < deadline and got is None:
+            try:
+                line = lines.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if line.startswith("[monitor] started in pid"):
+                got = line
+        assert got, "no [monitor] line while the process was running"
+        assert p.poll() is None
+    finally:
+        _stop([p])

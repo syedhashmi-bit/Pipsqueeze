@@ -33,6 +33,10 @@ This file tracks what has been built, what was fixed, and important decisions ma
 - Recovery path is now: clear `GOOGLE_CLIENT_ID` **and** set the three creds, then restart (docs, `.env.example`, Admin → Users panel updated).
 - Tests (fresh processes): Google-only boot with no creds starts and seeds 0 admins; Google off without creds refuses; half-configured Google still needs creds; creds set → admin seeded. The Google-only boot test reproduces the journal error against the previous commit.
 
+### Same day — app log lines only reached the journal on worker exit
+
+- Under systemd stdout is a pipe, so Python block-buffered every `print()` (`[monitor]`, `[google]`, `[vault]`, `[firewall]`); they only showed in `journalctl` when a worker exited. `app.py` now calls `sys.stdout.reconfigure(line_buffering=True)` right after its imports. It covers every module's prints and doesn't depend on the unit file (no `PYTHONUNBUFFERED` needed). Test: `test_log_lines_reach_a_pipe_while_the_process_runs` (fails against the previous commit).
+
 ### Same day — monitor thread ran once per gunicorn worker
 
 - The live unit runs `gunicorn -w 3` without `--preload`, so all three workers imported `app.py` and each started `_monitor_loop()` with its own `_prev_traffic`/`_prev_states`. Every 30s the same delta was added to `total_rx`/`total_tx` three times. `uptime_log`/`ping_history`/`traffic_history` got 3 rows. Connect/disconnect/expiry/quota alerts, expiry reminders, the weekly digest and auto-cleanup ran three times. On each restart every worker re-sent a "connected" alert per online peer.

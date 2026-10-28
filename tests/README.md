@@ -21,8 +21,9 @@ These run in seconds and require no system packages beyond Python.
 
 Spawns real separate processes that import `app.py` from this checkout in a
 temp dir (throwaway DB, no `.env`) and checks that exactly one starts the
-monitor thread, that the next process takes over when the owner exits, and
-that separate directories don't block each other.
+monitor thread, that the next process takes over when the owner exits, that
+separate directories don't block each other, and that the `[monitor]` log line
+reaches a pipe while the process is still running (stdout is line-buffered).
 
 ```bash
 pytest tests/test_monitor_lock.py -v

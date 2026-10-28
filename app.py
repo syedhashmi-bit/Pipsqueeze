@@ -7,13 +7,19 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from functools import wraps
-import subprocess, os, re, sqlite3, qrcode, pyotp, shutil, fcntl
+import subprocess, os, re, sqlite3, qrcode, pyotp, shutil, fcntl, sys
 import secrets, zipfile, threading, time, psutil, csv, io, json, base64
 import urllib.request, urllib.error, urllib.parse, ipaddress, socket
 from werkzeug.security import generate_password_hash, check_password_hash
 import notifications as notif
 import vault
 import google_auth
+
+# Under systemd stdout is a pipe, so Python block-buffers it: the [monitor],
+# [google], [vault] and [firewall] lines only reached the journal when a
+# worker exited. Line-buffer it so each print lands as it happens.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
 
 load_dotenv()
 
