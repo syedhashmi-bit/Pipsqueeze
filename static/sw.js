@@ -1,6 +1,6 @@
 // PipSqueeze service worker.
 // Bump CACHE_VERSION on every release so old assets get cleaned up.
-const CACHE_VERSION = '2026-05-19a';
+const CACHE_VERSION = '2026-10-29a';
 const CACHE = `pipsqueeze-${CACHE_VERSION}`;
 const PRECACHE = ['/static/logo.png', '/static/manifest.json'];
 
@@ -29,6 +29,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     if (e.request.method !== 'GET') return;
     const url = new URL(e.request.url);
+    // Leave other origins (Google Fonts, cdnjs, map tiles, Nominatim) to the
+    // browser. Re-fetching them from in here runs under the worker's own CSP,
+    // whose connect-src doesn't list them, so fonts, Leaflet and Chart.js
+    // silently failed on every page after the first visit.
+    if (url.origin !== self.location.origin) return;
     const isStatic = url.pathname.startsWith('/static/');
     if (!isStatic) {
         e.respondWith(fetch(e.request));

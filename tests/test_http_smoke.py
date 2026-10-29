@@ -321,7 +321,7 @@ def test_p2_cheat_modal_in_dashboard(test_app):
     _login(c)
     r = c.get("/")
     assert b'id="cheatModal"' in r.data
-    assert b"KEYBOARD SHORTCUTS" in r.data
+    assert b"Keyboard shortcuts" in r.data
 
 
 # ─────────────────────────────────────────────
@@ -373,7 +373,7 @@ def test_per_user_totp_reset_stores_encrypted_and_works_for_login(test_app):
     # GET the enrollment page — the plaintext secret must render exactly once
     r = c.get(f"/admin/users/enroll/{uid}")
     assert r.status_code == 200
-    assert b"ENROLL 2FA" in r.data
+    assert b"Enroll 2FA" in r.data
     assert b"data:image/png;base64," in r.data
     m = re.search(rb'<div class="secret-box">([A-Z2-7]+)</div>', r.data)
     assert m, "secret-box not rendered"

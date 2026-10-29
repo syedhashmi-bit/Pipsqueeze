@@ -1,139 +1,145 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PipSqueeze — Map</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" type="image/png" href="/static/logo.png">
-    <link rel="apple-touch-icon" href="/static/logo.png">
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#00c8ff">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="PipSqueeze">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-    <link rel="stylesheet" href="/static/css/transitions.css">
-    <script src="/static/js/transitions.js" defer></script>
-    <style>
-        :root{--bg:#030508;--panel:rgba(6,14,24,0.95);--border:rgba(0,200,255,0.1);--border-lit:rgba(0,200,255,0.4);--cyan:#00c8ff;--cyan-dim:rgba(0,200,255,0.07);--green:#00ff9d;--red:#ff4060;--yellow:#ffc940;--text:#c8e0ee;--muted:#3d6070;--muted-mid:#6a8ea0;--mono:'Share Tech Mono',monospace;--display:'Rajdhani',sans-serif;}
-        *{box-sizing:border-box;margin:0;padding:0;}
-        html,body{height:100%;}
-        body{font-family:var(--display);background:var(--bg);color:var(--text);display:flex;flex-direction:column;overflow:hidden;}
+{% extends "base.html" %}
+{% block title %}Map · PipSqueeze{% endblock %}
 
-        /* TOPBAR */
-        .topbar{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0;z-index:1000;position:relative;}
-        .topbar-left{display:flex;align-items:center;gap:14px;}
-        .brand-icon{width:36px;height:36px;border-radius:5px;background:var(--cyan-dim);border:1px solid rgba(0,200,255,0.2);display:flex;align-items:center;justify-content:center;font-size:16px;}
-        h1{font-size:20px;font-weight:700;letter-spacing:.05em;color:#fff;}
-        .sub{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px;}
-        .topbar-right{display:flex;gap:10px;align-items:center;}
-        .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:3px;font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.06em;cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;border:none;}
-        .btn-ghost{background:transparent;border:1px solid var(--border-lit);color:var(--cyan);}
-        .btn-ghost:hover{background:var(--cyan-dim);}
-        .stat-pill{display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:3px;font-family:var(--mono);font-size:12px;background:var(--cyan-dim);border:1px solid rgba(0,200,255,0.15);color:var(--cyan);}
+{% block head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+    /* The map fills the viewport under the app bar and page header. isolation
+       keeps Leaflet's high z-indexes from painting over the sticky app bar. */
+    .map-layout { position: relative; isolation: isolate; }
+    .map-wrap {
+        position: relative; height: calc(100vh - 230px); min-height: 420px;
+        border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+        background: var(--surface);
+    }
+    #map { position: absolute; inset: 0; z-index: 1; }
 
-        /* MAP CONTAINER — fills remaining height */
-        .map-wrap{position:relative;flex:1;min-height:0;}
-        #map{position:absolute;inset:0;z-index:1;}
+    /* Client list, floating over the right edge of the map */
+    .sidebar {
+        position: absolute; top: 12px; right: 12px; z-index: 900; width: 270px;
+        max-height: calc(100% - 52px); overflow-y: auto;   /* stop above the OSM attribution */
+        display: flex; flex-direction: column; gap: 8px;
+    }
+    .client-card {
+        background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 11px 12px; cursor: pointer; transition: border-color .15s, background .15s;
+    }
+    .client-card:hover { border-color: var(--border-lit); }
+    .card-name { font-size: var(--fs-md); font-weight: 700; color: var(--text-strong); }
+    .card-loc { font-size: var(--fs-sm); color: var(--muted-mid); margin-top: 1px; }
+    .card-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .card-row .mono { font-family: var(--mono); font-weight: 400; }
+    .no-loc-note {
+        background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 11px 12px; font-size: var(--fs-sm); color: var(--muted-mid); line-height: 1.5;
+    }
 
-        /* SIDEBAR */
-        .sidebar{position:absolute;top:12px;right:12px;z-index:900;width:268px;max-height:calc(100% - 24px);overflow-y:auto;display:flex;flex-direction:column;gap:8px;pointer-events:auto;}
-        .sidebar::-webkit-scrollbar{width:4px;}
-        .sidebar::-webkit-scrollbar-thumb{background:rgba(0,200,255,0.2);border-radius:2px;}
+    /* Legend */
+    .map-legend {
+        position: absolute; bottom: 14px; left: 12px; z-index: 900;
+        background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+        padding: 10px 14px; font-size: var(--fs-sm); color: var(--muted-mid);
+        display: flex; flex-direction: column; gap: 6px;
+    }
+    .legend-row { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ld-gw { background: var(--cyan); }
+    .ld-on { background: var(--green); }
+    .ld-warn { background: var(--yellow); }
+    .ld-off { background: var(--red); }
 
-        .client-card{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:12px;cursor:pointer;transition:border-color .2s,transform .15s;}
-        .client-card:hover{border-color:rgba(0,200,255,0.3);transform:translateX(-2px);}
-        .card-name{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px;}
-        .card-loc{font-family:var(--mono);font-size:11px;color:var(--muted-mid);margin-bottom:6px;}
-        .card-row{display:flex;gap:6px;flex-wrap:wrap;}
-        .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:2px;font-family:var(--mono);font-size:10px;}
-        .badge-green{background:rgba(0,255,157,0.1);color:var(--green);border:1px solid rgba(0,255,157,0.2);}
-        .badge-red{background:rgba(255,64,96,0.1);color:var(--red);border:1px solid rgba(255,64,96,0.2);}
-        .badge-cyan{background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(0,200,255,0.15);}
-        .badge-yellow{background:rgba(255,201,64,0.1);color:var(--yellow);border:1px solid rgba(255,201,64,0.2);}
+    /* OpenStreetMap tiles are light; invert them for the dark theme. Filtering
+       the whole tile pane (not each tile) avoids half-dark maps while tiles load. */
+    :root:not([data-theme="light"]) .leaflet-tile-pane {
+        filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.6);
+    }
+    .leaflet-control-attribution {
+        background: var(--surface-2) !important; color: var(--muted-mid) !important;
+        font-size: var(--fs-xs); padding: 1px 6px !important;
+    }
+    .leaflet-control-attribution a { color: var(--cyan) !important; }
 
-        .no-loc-note{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:14px;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6;}
+    /* Leaflet popups */
+    .leaflet-container { font-family: var(--display); background: var(--surface); }
+    .leaflet-popup-content-wrapper {
+        background: var(--surface-2) !important; color: var(--text) !important;
+        border: 1px solid var(--border-lit) !important; border-radius: var(--radius-sm) !important;
+        box-shadow: var(--shadow) !important; font-family: var(--display) !important;
+    }
+    .leaflet-popup-tip { background: var(--surface-2) !important; }
+    .leaflet-popup-content { margin: 13px 15px !important; min-width: 210px; font-size: var(--fs-sm); line-height: 1.4; }
+    .leaflet-container a.leaflet-popup-close-button { color: var(--muted-mid); }
+    .pop-name { font-size: var(--fs-md); font-weight: 700; color: var(--text-strong); margin-bottom: 2px; }
+    .pop-loc { color: var(--muted-mid); margin-bottom: 9px; }
+    .pop-auto { color: var(--muted); }
+    .pop-row { display: flex; justify-content: space-between; gap: 14px; color: var(--muted-mid); margin-bottom: 3px; }
+    .pop-row > span:last-child { font-family: var(--mono); }
+    .pop-val { color: var(--text-strong); }
+    .pop-val-yellow { color: var(--yellow); }
+    .pop-val-red { color: var(--red); }
 
-        /* POPUP */
-        .leaflet-popup-content-wrapper{background:#080f18!important;border:1px solid rgba(0,200,255,0.25)!important;border-radius:5px!important;box-shadow:0 8px 32px rgba(0,0,0,0.6)!important;color:var(--text)!important;font-family:var(--display)!important;}
-        .leaflet-popup-tip{background:#080f18!important;}
-        .leaflet-popup-content{margin:14px 16px!important;min-width:200px;}
-        .pop-name{font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;}
-        .pop-row{font-family:var(--mono);font-size:12px;color:var(--muted-mid);margin-bottom:4px;display:flex;justify-content:space-between;gap:12px;}
-        .pop-val{color:var(--text);}
-        .pop-val-green{color:var(--green);}
-        .pop-val-red{color:var(--red);}
-        .pop-val-yellow{color:var(--yellow);}
+    @media (max-width: 700px) {
+        .map-wrap { height: 60vh; min-height: 320px; }
+        .sidebar { position: static; width: auto; max-height: none; margin-top: 12px; }
+    }
+</style>
+{% endblock %}
 
-        /* LEGEND */
-        .map-legend{position:absolute;bottom:20px;left:12px;z-index:900;background:var(--panel);border:1px solid var(--border-lit);border-radius:5px;padding:11px 15px;font-family:var(--mono);font-size:11px;color:var(--muted-mid);display:flex;flex-direction:column;gap:7px;}
-        .legend-row{display:flex;align-items:center;gap:9px;white-space:nowrap;}
-        .legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
-    </style>
-</head>
-<body>
-
+{% block content %}
 <!-- clients with location: {{ clients|length }} -->
-
-<!-- TOPBAR -->
-<div class="topbar">
-    <div class="topbar-left">
-        <div class="brand-icon">🗺</div>
-        <div>
-            <h1>CLIENT MAP</h1>
-            <div class="sub">// Geographic distribution of VPN clients</div>
-        </div>
+<div class="page-head">
+    <div>
+        <h1>Map</h1>
+        <p class="page-sub">Where your VPN clients connect from.</p>
     </div>
-    <div class="topbar-right">
-        <div class="stat-pill">{{ clients|length }} pinned</div>
-        <a href="{{ url_for('home') }}"><button class="btn btn-ghost" type="button">← DASHBOARD</button></a>
+    <div class="page-actions">
+        <span class="chip chip-muted">{{ clients|length }} pinned</span>
     </div>
 </div>
 
-<!-- MAP + OVERLAYS -->
-<div class="map-wrap">
-    <div id="map"></div>
+<div class="map-layout">
+    <div class="map-wrap">
+        <div id="map"></div>
 
-    <!-- SIDEBAR — always shown, empty state note when no client locations -->
+        <div class="map-legend" aria-label="Legend">
+            <div class="legend-row"><span class="legend-dot ld-gw"></span>WireGuard gateway</div>
+            <div class="legend-row"><span class="legend-dot ld-on"></span>Client online</div>
+            <div class="legend-row"><span class="legend-dot ld-warn"></span>Client unreachable</div>
+            <div class="legend-row"><span class="legend-dot ld-off"></span>Client disabled</div>
+        </div>
+    </div>
+
+    <!-- Always shown; holds the empty-state note when no client has a location -->
     <div class="sidebar">
-        <div class="no-loc-note" style="font-size:10px;opacity:.7;margin-bottom:6px;">// Locations auto-detected from connection IP. Manual locations set via ⚙ Edit take priority.</div>
+        <div class="no-loc-note">Locations are detected from each client's connection IP. A location set in the client's Edit dialog takes priority.</div>
         {% if clients %}
             {% for c in clients %}
             <div class="client-card" onclick="flyTo({{ c.lat }}, {{ c.lon }}, '{{ c.name }}')">
                 <div class="card-name">{{ c.name }}</div>
-                {% if c.location %}<div class="card-loc">{% if c.location_source == 'auto' %}🌍{% else %}📍{% endif %} {{ c.location }}</div>{% endif %}
+                {% if c.location %}<div class="card-loc">{{ c.location }}{% if c.location_source == 'auto' %} · auto-detected{% endif %}</div>{% endif %}
                 <div class="card-row">
                     {% if not c.disabled %}
-                    <span class="badge badge-green">● ONLINE</span>
+                    <span class="chip chip-muted">Enabled</span>
                     {% else %}
-                    <span class="badge badge-red">● DISABLED</span>
+                    <span class="chip chip-red">Disabled</span>
                     {% endif %}
                     {% if c.ping_ms is not none %}
-                    <span class="badge badge-cyan">{{ c.ping_ms|round(1) }}ms</span>
+                    <span class="chip chip-muted"><span class="mono">{{ c.ping_ms|round(1) }} ms</span></span>
                     {% endif %}
                     {% if c.uptime is not none %}
-                    <span class="badge {% if c.uptime >= 90 %}badge-green{% elif c.uptime >= 70 %}badge-yellow{% else %}badge-red{% endif %}">{{ c.uptime }}% up</span>
+                    <span class="chip {% if c.uptime >= 90 %}chip-muted{% elif c.uptime >= 70 %}chip-yellow{% else %}chip-red{% endif %}"><span class="mono">{{ c.uptime }}%</span>&nbsp;up</span>
                     {% endif %}
                 </div>
             </div>
             {% endfor %}
         {% else %}
-            <div class="no-loc-note">// No client locations set.<br>Set lat/lon via the Edit (⚙) button on the dashboard.</div>
+            <div class="no-loc-note"><strong>No client locations yet.</strong> Set one from a client's Edit dialog on the Clients page.</div>
         {% endif %}
     </div>
-
-    <!-- LEGEND -->
-    <div class="map-legend">
-        <div class="legend-row"><div class="legend-dot" style="background:#00c8ff;box-shadow:0 0 6px #00c8ff99;"></div>WireGuard Gateway</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#00ff9d;box-shadow:0 0 6px #00ff9d99;"></div>Client Online</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#ffc940;box-shadow:0 0 6px #ffc94099;"></div>Client Unreachable</div>
-        <div class="legend-row"><div class="legend-dot" style="background:#ff4060;box-shadow:0 0 6px #ff406099;"></div>Client Disabled</div>
-    </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const clientData  = {{ clients_json|safe }};
@@ -143,22 +149,35 @@ const GW_NAME     = {{ mt_name|tojson }};
 const GW_IFACE    = {{ mt_iface|tojson }};
 const HAS_GW      = (GW_LAT !== null && GW_LON !== null);
 
+// Marker colours follow the theme tokens, so pins match the legend.
+const _rootStyle = getComputedStyle(document.documentElement);
+function token(name, fallback){ return (_rootStyle.getPropertyValue(name) || '').trim() || fallback; }
+const C_GW   = token('--cyan',   '#00c8ff');
+const C_ON   = token('--green',  '#00e08c');
+const C_WARN = token('--yellow', '#ffc940');
+const C_OFF  = token('--red',    '#ff4d6a');
+const LIGHT  = document.documentElement.dataset.theme === 'light';
+
 // Init map: centre on gateway if configured, else neutral world view
 const map = L.map('map', {
     center: HAS_GW ? [GW_LAT, GW_LON] : [20, 0],
     zoom: HAS_GW ? 4 : 2,
     zoomControl: true,
-    attributionControl: false
+    attributionControl: true
 });
+map.attributionControl.setPrefix(false);
 
-// CartoDB Dark Matter — natively dark, no CSS filter needed
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '©OpenStreetMap ©CartoDB',
-    subdomains: 'abcd',
+// OpenStreetMap's standard tiles (CARTO's free basemaps now need an API key).
+// OSM's tile policy requires a Referer, which the site-wide same-origin
+// Referrer-Policy strips, so tiles send just our origin; and it requires the
+// attribution below. The dark theme inverts the tile pane in CSS.
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    referrerPolicy: 'strict-origin-when-cross-origin',
     maxZoom: 19
 }).addTo(map);
 
-// Glowing dot icon factory
+// Solid dot icon factory
 function makeIcon(color, size){
     size = size || 14;
     return L.divIcon({
@@ -166,8 +185,7 @@ function makeIcon(color, size){
         html: '<div style="'
             + 'width:' + size + 'px;height:' + size + 'px;border-radius:50%;'
             + 'background:' + color + ';'
-            + 'box-shadow:0 0 ' + size + 'px ' + color + ',0 0 ' + (size * 2) + 'px ' + color + '55;'
-            + 'border:2px solid rgba(255,255,255,0.3);'
+            + 'border:2px solid ' + (LIGHT ? '#ffffff' : 'rgba(255,255,255,0.55)') + ';'
             + 'cursor:pointer;'
             + '"></div>',
         iconSize:    [size, size],
@@ -176,13 +194,13 @@ function makeIcon(color, size){
     });
 }
 
-// GATEWAY PIN (cyan, 24px) — only when MT_LAT/MT_LON are configured
+// GATEWAY PIN (cyan, 22px) — only when MT_LAT/MT_LON are configured
 if (HAS_GW) {
-    const gwMarker = L.marker([GW_LAT, GW_LON], {icon: makeIcon('#00c8ff', 24)});
+    const gwMarker = L.marker([GW_LAT, GW_LON], {icon: makeIcon(C_GW, 22)});
     gwMarker.bindPopup(
-        '<div class="pop-name" style="color:#00c8ff;">🏠 MikroTik WireGuard Gateway</div>'
+        '<div class="pop-name">MikroTik WireGuard gateway</div>'
         + '<div class="pop-row"><span>Location</span><span class="pop-val">' + GW_NAME + '</span></div>'
-        + '<div class="pop-row"><span>Interface</span><span class="pop-val" style="color:#00c8ff;">' + GW_IFACE + '</span></div>'
+        + '<div class="pop-row"><span>Interface</span><span class="pop-val">' + GW_IFACE + '</span></div>'
     );
     gwMarker.addTo(map);
 }
@@ -194,25 +212,24 @@ const allCoords = HAS_GW ? [[GW_LAT, GW_LON]] : [];
 clientData.forEach(function(c) {
     if (c.lat === null || c.lon === null) return;
 
-    var color = c.disabled ? '#ff4060' : (c.reachable ? '#00ff9d' : '#ffc940');
+    var color = c.disabled ? C_OFF : (c.reachable ? C_ON : C_WARN);
     var marker = L.marker([c.lat, c.lon], {icon: makeIcon(color, 16)});
 
-    var pingStr   = c.ping_ms !== null ? parseFloat(c.ping_ms).toFixed(1) + 'ms' : 'N/A';
+    var pingStr   = c.ping_ms !== null ? parseFloat(c.ping_ms).toFixed(1) + ' ms' : 'N/A';
     var uptimeStr = c.uptime  !== null ? c.uptime + '%' : 'N/A';
-    var pingCls   = c.reachable ? 'pop-val-green' : 'pop-val-red';
-    var uptimeCls = c.uptime >= 90 ? 'pop-val-green' : (c.uptime >= 70 ? 'pop-val-yellow' : 'pop-val-red');
-    var locIcon   = c.location_source === 'auto' ? '🌍' : '📍';
-    var locSuffix = c.location_source === 'auto' ? ' <span style="opacity:.5;font-size:10px;">(auto)</span>' : '';
+    var pingCls   = c.reachable ? 'pop-val' : 'pop-val-red';
+    var uptimeCls = c.uptime >= 90 ? 'pop-val' : (c.uptime >= 70 ? 'pop-val-yellow' : 'pop-val-red');
+    var locSuffix = c.location_source === 'auto' ? ' <span class="pop-auto">· auto-detected</span>' : '';
 
     marker.bindPopup(
         '<div class="pop-name">' + c.name + '</div>'
-        + (c.location ? '<div style="font-family:var(--mono);font-size:11px;color:#4a6070;margin-bottom:10px;">' + locIcon + ' ' + c.location + locSuffix + '</div>' : '')
-        + '<div class="pop-row"><span>IP</span><span class="pop-val" style="color:#00c8ff;">' + c.ip + '</span></div>'
-        + '<div class="pop-row"><span>Status</span><span class="' + (c.disabled ? 'pop-val-red' : 'pop-val-green') + '">' + (c.disabled ? 'DISABLED' : 'ENABLED') + '</span></div>'
+        + (c.location ? '<div class="pop-loc">' + c.location + locSuffix + '</div>' : '')
+        + '<div class="pop-row"><span>IP</span><span class="pop-val">' + c.ip + '</span></div>'
+        + '<div class="pop-row"><span>Status</span><span class="' + (c.disabled ? 'pop-val-red' : 'pop-val') + '">' + (c.disabled ? 'Disabled' : 'Enabled') + '</span></div>'
         + '<div class="pop-row"><span>Latency</span><span class="' + pingCls + '">' + pingStr + '</span></div>'
-        + '<div class="pop-row"><span>Uptime 7d</span><span class="' + uptimeCls + '">' + uptimeStr + '</span></div>'
+        + '<div class="pop-row"><span>Uptime (7 days)</span><span class="' + uptimeCls + '">' + uptimeStr + '</span></div>'
         + '<div class="pop-row"><span>RX / TX</span><span class="pop-val">' + c.total_rx + ' / ' + c.total_tx + '</span></div>'
-        + (c.last_seen ? '<div class="pop-row"><span>Last Seen</span><span class="pop-val" style="font-size:11px;">' + c.last_seen + '</span></div>' : '')
+        + (c.last_seen ? '<div class="pop-row"><span>Last seen</span><span class="pop-val">' + c.last_seen + '</span></div>' : '')
     );
 
     marker.addTo(map);
@@ -236,17 +253,5 @@ function flyTo(lat, lon, name) {
         if (markers[name]) markers[name].openPopup();
     }, 1300);
 }
-
-// Pulse animation for online client markers
-setInterval(function() {
-    document.querySelectorAll('.leaflet-marker-icon div').forEach(function(el) {
-        var bg = el.style.background;
-        if (bg === '#00ff9d' || bg === 'rgb(0, 255, 157)') {
-            el.style.transform = 'scale(1.3)';
-            setTimeout(function() { el.style.transform = 'scale(1)'; }, 300);
-        }
-    });
-}, 3000);
 </script>
-</body>
-</html>
+{% endblock %}

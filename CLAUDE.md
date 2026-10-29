@@ -54,7 +54,7 @@ git push                                           # push to main (HTTPS, authed
 - **Frontend**: Jinja2 server-rendered HTML; JS only for live updates (`/peers` polls every 5s), Chart.js sparklines, Leaflet.js map
 - **Auth**: Username/password + TOTP 2FA (pyotp), optional Sign in with Google (Authlib OIDC, `.env` email allowlist — same model as Protek/Othoni/RiMM), rate limiting, session timeout, IP whitelist
 - **Notifications**: Discord webhook, SMTP email, Telegram bot — `notifications.py`
-- **Design**: Tactical dark NOC aesthetic — electric cyan `#00c8ff`, neon green `#00ff9d`, deep navy background, Rajdhani + Share Tech Mono fonts from Google Fonts
+- **Design**: Refined dark NOC look — electric cyan, neon green, deep navy, Rajdhani + Share Tech Mono (Google Fonts). Tokens and components live in `static/css/app.css`; every admin page extends `templates/base.html`. Light theme via `<html data-theme="light">`
 
 ## Architecture
 
@@ -66,8 +66,12 @@ git push                                           # push to main (HTTPS, authed
 | `mikrotik_api.py` | RouterOS API wrapper — connect, get_peers, add/delete/rename/enable/disable peers |
 | `notifications.py` | Discord/Email/Telegram sender; no Flask dependency, safe to import from both routes and thread |
 | `google_auth.py` | Sign in with Google — OIDC + PKCE via Authlib, `GOOGLE_*_EMAILS` allowlist → role; no Flask import at module level |
-| `templates/login.html` | 2FA login page with rate limiting lockout display |
-| `templates/index.html` | Main dashboard — create clients, manage list, stats, modals |
+| `templates/base.html` | Shared layout for every admin page: head, app bar + main nav, theme toggle, flash messages, `#toast`, SW registration. Blocks: `title`, `head`, `content`, `modals`, `scripts` |
+| `static/css/app.css` | Design tokens (dark + light) and shared components: `.btn*`, `.panel*`, `.chip`, `.tiles/.tile`, tables, form fields, `.segmented`, `.modal*`, `.menu`, `.toast`, `.empty-state` |
+| `templates/settings.html` | Settings hub (`/settings`): links to Alerts, Users, API keys, Provisioning, Import, Activity log, exports; danger zone (typed `RESET`) |
+| `templates/error.html` | Styled 404 / 500 pages |
+| `templates/login.html` | Login page (standalone, not on base.html): Google button, or password + TOTP when Google is off |
+| `templates/index.html` | Clients dashboard — full-width client list with ⋯ row menus, New client / edit / rename / clone dialogs, status tiles |
 | `templates/wireguard.html` | Live peers page — ping, uptime, traffic sparklines, expand rows |
 | `templates/security.html` | Login audit trail, locked IPs, IP whitelist info |
 | `templates/notifications.html` | Discord/Email/Telegram alert channel settings |
@@ -137,6 +141,7 @@ Each client has a unique `portal_token`. Clients visit `/portal/<token>` to down
 | `/weekly-report` | Weekly usage and uptime summary |
 | `/map` | Geographic client distribution (Leaflet.js) |
 | `/logs` | Full paginated activity log |
+| `/settings` | Settings hub + danger zone (reset DB / reset all, both require `confirm=RESET`) |
 | `/auth/google` | Start Sign in with Google (redirects to Google) |
 | `/auth/google/callback` | Google OIDC callback — verifies ID token, checks allowlist, logs in |
 | `/portal/<token>` | Client self-serve (no login required) |
@@ -207,10 +212,12 @@ WEEKLY_DIGEST_DAY=monday
 - Always restart the service after editing `app.py`, `mikrotik_api.py`, or `notifications.py`
 - MikroTik peer IDs may be `id` or `.id` depending on API version — always use `get_peer_id()` helper
 - Last handshake from MikroTik is formatted `1h2m30s` — parsed with regex; peer is "Online" if handshake < 120s ago
-- Flash messages use a `sessionStorage` key trick to avoid re-firing on page refresh
+- Flash messages are rendered by `base.html` on every page (`flash(msg, "error")` or text containing error/failed/required styles them as errors) — don't add per-page flash code
 - The wireguard page sorts (peer row, expand row) as bonded pairs — keep this invariant when touching sort logic
 - All new DB columns go in both `CREATE TABLE` and the `init_db()` migration block
-- Keep the tactical dark NOC design language consistent in all UI changes (cyan/green/navy, Rajdhani + Share Tech Mono)
+- UI: new admin pages `{% extends "base.html" %}` and use `app.css` classes and tokens — no hex colours (they break light mode), no glows/text-shadow/scanline or grid backgrounds/entrance animations, no `// ` prefixes or ALL-CAPS labels, no emoji icons. Monospace (`.mono` / `var(--mono)`) only for data: IPs, keys, byte counts, timestamps. Byte counts via the `bytes` Jinja filter (`fmt_bytes`). Keep the cyan/green/navy + Rajdhani/Share Tech Mono identity
+- External scripts/styles must be allowed by the CSP in `_security_headers` (`tests/test_pages.py` enforces this); the service worker must never `respondWith` for other origins (inside the worker, fetch runs under its own CSP and silently blocks fonts/CDNs). Bump `CACHE_VERSION` in `static/sw.js` when static assets change
+- Map tiles are OpenStreetMap's (`tile.openstreetmap.org`) with `referrerPolicy: 'strict-origin-when-cross-origin'` and visible attribution — OSM blocks Referer-less requests and the site-wide Referrer-Policy is `same-origin`. CARTO basemaps need an API key now
 - VSCode flags Jinja2 `{{ }}` inside `<script>` tags as JS errors — these are false positives, code works fine
 - Geocoding uses OpenStreetMap Nominatim (browser-side JS, no API key, 1 req/sec rate limit)
 - After any significant session, update `MEMORY.md` with what was changed

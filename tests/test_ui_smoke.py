@@ -206,7 +206,7 @@ def test_reset_2fa_full_flow(page: Page, live_url, test_credentials, test_db_pat
 
     # Should now be on the enrollment page
     assert "/admin/users/enroll/" in page.url, f"expected enroll redirect, at {page.url}"
-    expect(page.locator("h1")).to_contain_text("ENROLL 2FA")
+    expect(page.locator("h1")).to_contain_text("Enroll 2FA")
     # QR is rendered as a data URL
     qr = page.locator("img[src^='data:image/png;base64,']")
     expect(qr).to_be_visible()

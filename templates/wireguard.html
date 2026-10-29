@@ -1,408 +1,328 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PipSqueeze — Peers</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" type="image/png" href="/static/logo.png">
-    <link rel="apple-touch-icon" href="/static/logo.png">
-    <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#00c8ff">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="PipSqueeze">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="csrf-token" content="{{ csrf_token() }}">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-    <link rel="stylesheet" href="/static/css/transitions.css">
-    <script src="/static/js/transitions.js" defer></script>
-    <style>
-        :root{
-            --bg:#030508;--surface:#060c13;--panel:rgba(6,14,24,0.93);
-            --border:rgba(0,200,255,0.1);--border-lit:rgba(0,200,255,0.4);
-            --cyan:#00c8ff;--cyan-dim:rgba(0,200,255,0.07);
-            --green:#00ff9d;--green-dim:rgba(0,255,157,0.07);
-            --red:#ff4060;--red-dim:rgba(255,64,96,0.09);
-            --yellow:#ffc940;--yellow-dim:rgba(255,201,64,0.09);
-            --blue:#58a6ff;
-            --text:#c8e0ee;--muted:#3d6070;--muted-mid:#6a8ea0;
-            --mono:'Share Tech Mono',monospace;--display:'Rajdhani',sans-serif;
-        }
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{font-family:var(--display);background:var(--bg);color:var(--text);min-height:100vh;padding:28px 32px;overflow-x:hidden;}
-        .bg-layer{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;}
-        .grid-overlay{position:absolute;inset:0;background-image:linear-gradient(rgba(0,200,255,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,255,0.04) 1px,transparent 1px);background-size:44px 44px;animation:gridMove 20s linear infinite;}
-        @keyframes gridMove{to{background-position:44px 44px;}}
-        .scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.12) 3px,rgba(0,0,0,0.12) 4px);}
-        .gs{position:absolute;border-radius:50%;filter:blur(140px);}
-        .gs1{width:900px;height:900px;background:#001830;top:-350px;left:-300px;opacity:0.5;}
-        .gs2{width:600px;height:600px;background:#001020;bottom:-200px;right:-200px;opacity:0.4;}
-        .stream{position:absolute;width:1px;background:linear-gradient(to bottom,transparent,var(--cyan),transparent);animation:streamDrop linear infinite;opacity:0;}
-        @keyframes streamDrop{0%{top:-20%;opacity:0;}5%{opacity:0.4;}95%{opacity:0.4;}100%{top:120%;opacity:0;}}
-        .page{max-width:1400px;margin:auto;position:relative;z-index:1;}
+{% extends "base.html" %}
+{% block title %}Peers · PipSqueeze{% endblock %}
 
-        /* TOPBAR */
-        .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:26px;padding-bottom:20px;border-bottom:1px solid rgba(0,200,255,0.08);animation:fadeDown .5s ease both;}
-        @keyframes fadeDown{from{opacity:0;transform:translateY(-14px);}to{opacity:1;transform:translateY(0);}}
-        h1{font-size:30px;font-weight:700;letter-spacing:.05em;color:#fff;text-shadow:0 0 40px rgba(0,200,255,0.2);margin-bottom:5px;}
-        .page-sub{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.05em;}
-        .topbar-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding-top:4px;}
-        .auto-badge{display:flex;align-items:center;gap:7px;padding:8px 13px;border:1px solid rgba(0,200,255,0.15);border-radius:3px;background:var(--cyan-dim);font-family:var(--mono);font-size:11px;color:var(--cyan);letter-spacing:.08em;}
-        .live-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green);animation:blink 1.2s step-end infinite;flex-shrink:0;}
-        @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+    /* Live indicator next to the refresh button */
+    .live-note { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-sm); color: var(--muted-mid); margin-right: 4px; }
 
-        /* BUTTONS */
-        .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:3px;font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.06em;cursor:pointer;text-decoration:none;transition:all .2s;white-space:nowrap;border:none;}
-        .btn-ghost{background:transparent;border:1px solid var(--border-lit);color:var(--cyan);}
-        .btn-ghost:hover{background:var(--cyan-dim);box-shadow:0 0 20px rgba(0,200,255,0.15);}
-        .btn-danger{background:var(--red-dim);border:1px solid rgba(255,64,96,0.3);color:var(--red);}
-        .btn-danger:hover{background:rgba(255,64,96,0.14);}
-        .btn-green{background:var(--green-dim);border:1px solid rgba(0,255,157,0.3);color:var(--green);}
-        .btn-sm{padding:6px 12px;font-size:11.5px;letter-spacing:.06em;}
+    /* Router-unreachable / refresh-failed banner (a .flash, toggled by loadPeers) */
+    #mtBanner { margin-bottom: 18px; align-items: center; }
+    #mtBanner[hidden], #mtBanner [hidden] { display: none; }
+    .banner-title { font-weight: 600; color: var(--text-strong); }
+    .banner-detail { font-family: var(--mono); font-size: var(--fs-sm); color: var(--muted-mid); margin-top: 2px; word-break: break-word; }
 
-        /* INTERFACE TABS */
-        .iface-bar{display:flex;align-items:center;gap:10px;margin-bottom:18px;flex-wrap:wrap;animation:fadeUp .5s .05s ease both;}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
-        .iface-label{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em;}
-        .iface-btn{padding:6px 14px;border-radius:2px;font-family:var(--mono);font-size:11.5px;cursor:pointer;text-decoration:none;border:1px solid rgba(0,200,255,0.2);color:var(--muted-mid);background:transparent;transition:all .2s;}
-        .iface-btn:hover,.iface-btn.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim);}
+    /* Interface switcher */
+    .iface-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+    .iface-label { font-size: var(--fs-sm); font-weight: 600; color: var(--muted-mid); margin-right: 4px; }
+    .iface-btn {
+        padding: 5px 12px; border-radius: var(--radius-sm);
+        font-family: var(--mono); font-size: var(--fs-sm);
+        border: 1px solid var(--border); color: var(--muted-mid);
+        transition: color .15s, border-color .15s, background .15s;
+    }
+    .iface-btn:hover { color: var(--text-strong); border-color: var(--border-lit); background: var(--hover); text-decoration: none; }
+    .iface-btn.active { color: var(--cyan); border-color: var(--border-lit); background: var(--cyan-dim); }
 
-        /* STAT STRIP */
-        .stat-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;animation:fadeUp .5s .06s ease both;}
-        .stat-card{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:16px 18px;position:relative;overflow:hidden;transition:border-color .25s,transform .2s;cursor:default;}
-        .stat-card::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;transform:scaleX(0);transition:transform .3s;}
-        .s-total::after{background:var(--cyan);}
-        .s-online::after{background:var(--green);}
-        .s-enabled::after{background:var(--blue);}
-        .s-disabled::after{background:var(--muted-mid);}
-        .stat-card:hover{border-color:rgba(0,200,255,0.25);transform:translateY(-2px);}
-        .stat-card:hover::after{transform:scaleX(1);}
-        .stat-label{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;}
-        .stat-val{font-size:30px;font-weight:700;line-height:1;letter-spacing:-.02em;}
-        .s-total .stat-val{color:var(--cyan);text-shadow:0 0 25px rgba(0,200,255,0.35);}
-        .s-online .stat-val{color:var(--green);text-shadow:0 0 25px rgba(0,255,157,0.35);}
-        .s-enabled .stat-val{color:var(--blue);text-shadow:0 0 25px rgba(88,166,255,0.35);}
-        .s-disabled .stat-val{color:var(--muted-mid);}
+    /* Toolbar */
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    .toolbar-left, .toolbar-right { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+    .toolbar #searchBox { width: 260px; }
+    .toolbar #statusFilter { width: auto; min-width: 160px; cursor: pointer; }
 
-        /* MAIN CARD */
-        .main-card{background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:22px;position:relative;overflow:hidden;animation:fadeUp .5s .1s ease both;}
-        .main-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:.35;}
+    /* Table */
+    .peers-table { min-width: 1100px; }
+    th.sortable { cursor: pointer; user-select: none; }
+    th.sortable:hover { color: var(--text-strong); }
+    th .arr { opacity: .45; margin-left: 3px; }
+    tr.peer-row { cursor: pointer; }
+    .peer-name { font-weight: 700; font-size: var(--fs-md); color: var(--text-strong); }
+    .peer-id { font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); margin-top: 1px; }
+    .key-cell { font-family: var(--mono); font-size: var(--fs-sm); color: var(--muted-mid); cursor: copy; }
+    .key-cell:hover { color: var(--cyan); }
+    .addr-cell { font-family: var(--mono); color: var(--text); white-space: nowrap; }
+    .hs-cell { font-family: var(--mono); font-size: var(--fs-sm); color: var(--muted-mid); white-space: nowrap; }
+    .traffic-cell { font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.7; color: var(--text); white-space: nowrap; }
+    .spark-wrap { width: 80px; height: 28px; display: inline-block; }
+    .uptime-badge { font-family: var(--mono); font-size: var(--fs-sm); color: var(--text); }
+    .uptime-na { color: var(--muted); }
+    .action-col { display: flex; gap: 7px; flex-wrap: wrap; }
+    .action-col form { margin: 0; }
 
-        /* TOOLBAR */
-        .toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap;}
-        .toolbar-left,.toolbar-right{display:flex;gap:9px;flex-wrap:wrap;align-items:center;}
-        .input-shell{position:relative;display:flex;align-items:center;}
-        .i-icon{position:absolute;left:11px;font-size:13px;color:var(--cyan);opacity:.3;pointer-events:none;}
-        input,select{padding:10px 11px 10px 32px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.13);border-radius:3px;color:var(--text);font-family:var(--mono);font-size:13px;letter-spacing:.04em;outline:none;transition:all .2s;}
-        select{padding-left:11px;min-width:150px;cursor:pointer;}
-        input{min-width:190px;}
-        input:focus,select:focus{border-color:var(--cyan);background:rgba(0,200,255,0.07);box-shadow:0 0 0 3px rgba(0,200,255,0.08);}
-        input::placeholder{color:rgba(61,96,112,0.6);}
-        select option{background:#060c13;}
+    /* Status pills (also built by loadPeers) */
+    .pill {
+        display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 99px;
+        font-size: var(--fs-xs); font-weight: 700; letter-spacing: .03em; white-space: nowrap;
+        border: 1px solid var(--border); background: var(--hover); color: var(--muted-mid);
+    }
+    .pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--muted); }
+    .pill-online { background: var(--green-dim); color: var(--green); border-color: rgba(0, 224, 140, 0.25); }
+    .pill-online::before { background: var(--green); }
+    .pill-unknown { background: var(--yellow-dim); color: var(--yellow); border-color: rgba(255, 201, 64, 0.25); }
+    .pill-unknown::before { background: var(--yellow); }
+    .pill-enabled { color: var(--text); }
+    .pill-enabled::before { background: var(--cyan); }
+    .pill-disabled { background: var(--red-dim); color: var(--red); border-color: rgba(255, 77, 106, 0.25); }
+    .pill-disabled::before { background: var(--red); }
 
-        /* TABLE */
-        .table-shell{border:1px solid rgba(0,200,255,0.08);border-radius:4px;overflow-x:auto;}
-        .table-shell::-webkit-scrollbar{height:4px;}
-        .table-shell::-webkit-scrollbar-thumb{background:rgba(0,200,255,0.2);border-radius:2px;}
-        table{width:100%;border-collapse:collapse;min-width:1100px;}
-        th{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;padding:11px 13px;text-align:left;border-bottom:1px solid rgba(0,200,255,0.08);background:rgba(0,200,255,0.025);cursor:pointer;user-select:none;white-space:nowrap;transition:color .2s;}
-        th:hover{color:var(--cyan);}
-        th .arr{opacity:.3;font-size:9px;margin-left:3px;}
-        td{padding:13px;font-size:13px;border-bottom:1px solid rgba(0,200,255,0.05);vertical-align:middle;}
-        tr:last-child td{border-bottom:none;}
-        tr:hover td{background:rgba(0,200,255,0.025);}
-        @keyframes rowFlash{0%{background:rgba(0,200,255,0.1);}100%{background:transparent;}}
-        tr.updated td{animation:rowFlash .6s ease;}
-        .peer-name{font-family:var(--display);font-weight:700;font-size:15px;color:#fff;}
-        .peer-id{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px;}
-        .key-cell{font-family:var(--mono);font-size:12px;color:#5a8aaa;cursor:pointer;transition:color .15s;}
-        .key-cell:hover{color:var(--cyan);}
-        .addr-cell{font-family:var(--mono);font-size:13px;color:var(--cyan);}
-        .hs-cell{font-family:var(--mono);font-size:11.5px;color:var(--muted-mid);}
+    /* Expand row */
+    .expand-row { display: none; }
+    .expand-row.open { display: table-row; }
+    .expand-cell { padding: 0 !important; border: none !important; }
+    tbody tr.expand-row:hover td { background: transparent; }
+    .expand-inner { padding: 16px 20px; background: var(--inset); border-bottom: 1px solid var(--border); }
+    .expand-meta {
+        display: flex; align-items: flex-start; gap: 28px; flex-wrap: wrap;
+        margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    }
+    .expand-val { color: var(--text-strong); }
+    .expand-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+    @media (max-width: 900px) { .expand-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 600px) { .expand-grid { grid-template-columns: 1fr; } }
+    .expand-section-title {
+        font-size: var(--fs-sm); font-weight: 600; color: var(--muted-mid); margin-bottom: 8px;
+        display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .expand-meta .expand-section-title { margin-bottom: 2px; }
+    .range-btns { display: inline-flex; gap: 4px; }
+    .up-range-btn {
+        font-family: var(--mono); font-size: var(--fs-xs); padding: 1px 7px; border-radius: 4px;
+        background: transparent; color: var(--muted-mid); border: 1px solid var(--border); cursor: pointer;
+        transition: color .15s, border-color .15s, background .15s;
+    }
+    .up-range-btn:hover { color: var(--text-strong); border-color: var(--border-lit); }
+    .up-range-btn.active { color: var(--cyan); border-color: var(--border-lit); background: var(--cyan-dim); }
+    .history-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+    .history-empty { font-size: var(--fs-sm); color: var(--muted); }
+    .ev-entry {
+        font-size: var(--fs-sm); padding: 6px 10px; border-radius: 4px;
+        border-left: 3px solid var(--border); background: var(--hover); color: var(--text);
+    }
+    .ev-connected { border-left-color: var(--green); }
+    .ev-disconnected { border-left-color: var(--red); }
+    .ev-time { font-family: var(--mono); color: var(--muted); font-size: var(--fs-xs); display: block; margin-top: 1px; }
+    .chart-wrap { position: relative; height: 100px; }
+    .chart-wrap.tall { height: 110px; }
 
-        /* PILLS */
-        .pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:2px;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;}
-        .pill::before{content:'';width:5px;height:5px;border-radius:50%;flex-shrink:0;}
-        .pill-online{background:rgba(0,255,157,0.1);color:var(--green);border:1px solid rgba(0,255,157,0.2);}
-        .pill-online::before{background:var(--green);box-shadow:0 0 5px var(--green);animation:blink 1.2s step-end infinite;}
-        .pill-offline{background:rgba(61,96,112,0.14);color:#5a7a8a;border:1px solid rgba(61,96,112,0.2);}
-        .pill-offline::before{background:#5a7a8a;}
-        .pill-unknown{background:var(--yellow-dim);color:var(--yellow);border:1px solid rgba(255,201,64,0.2);}
-        .pill-unknown::before{background:var(--yellow);}
-        .pill-enabled{background:rgba(0,200,255,0.08);color:var(--cyan);border:1px solid rgba(0,200,255,0.18);}
-        .pill-enabled::before{background:var(--cyan);box-shadow:0 0 4px var(--cyan);}
-        .pill-disabled{background:var(--red-dim);color:#ff8090;border:1px solid rgba(255,64,96,0.18);}
-        .pill-disabled::before{background:#ff8090;}
+    /* Footer */
+    .table-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+    .tfoot-txt { font-size: var(--fs-sm); color: var(--muted); }
 
-        /* TRAFFIC */
-        .traffic-cell{font-family:var(--mono);font-size:12px;line-height:2;}
-        .t-rx{color:var(--green);}
-        .t-tx{color:var(--blue);}
+    @media (max-width: 700px) {
+        .toolbar-left { width: 100%; }
+        .toolbar #searchBox, .toolbar #statusFilter { width: 100%; }
+    }
+    @media (max-width: 500px) { .peers-panel { padding: 14px; } }
+</style>
+{% endblock %}
 
-        /* SPARKLINE */
-        .spark-wrap{width:80px;height:28px;display:inline-block;}
-
-        /* UPTIME BADGE */
-        .uptime-badge{font-family:var(--mono);font-size:11px;color:var(--green);}
-        .uptime-na{color:var(--muted);}
-
-        /* ACTIONS */
-        .action-col{display:flex;gap:7px;flex-wrap:wrap;}
-        .action-col form{margin:0;}
-
-        /* EXPAND ROW */
-        .expand-row{display:none;}
-        .expand-row.open{display:table-row;}
-        .expand-cell{padding:0 !important;border:none !important;}
-        .expand-inner{padding:16px 20px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(0,200,255,0.08);}
-        .expand-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
-        @media(max-width:900px){.expand-grid{grid-template-columns:1fr 1fr;}}
-        @media(max-width:600px){.expand-grid{grid-template-columns:1fr;}}
-        .expand-section-title{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--cyan);opacity:.6;text-transform:uppercase;margin-bottom:10px;}
-        .up-range-btn{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;padding:2px 7px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:2px;cursor:pointer;transition:all .15s;text-transform:uppercase;}
-        .up-range-btn:hover{color:var(--cyan);border-color:rgba(0,200,255,0.3);}
-        .up-range-btn.active{color:var(--cyan);border-color:var(--cyan);background:var(--cyan-dim);}
-        .history-list{max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;}
-        .history-list::-webkit-scrollbar{width:3px;}
-        .history-list::-webkit-scrollbar-thumb{background:rgba(0,200,255,0.2);border-radius:2px;}
-        .ev-entry{font-family:var(--mono);font-size:11.5px;padding:7px 10px;border-radius:3px;border-left:2px solid;}
-        .ev-connected{border-left-color:var(--green);color:var(--green);background:rgba(0,255,157,0.04);}
-        .ev-disconnected{border-left-color:var(--red);color:#ff8090;background:rgba(255,64,96,0.04);}
-        .ev-time{color:var(--muted);font-size:10px;display:block;margin-top:2px;}
-        .chart-wrap{position:relative;height:100px;}
-
-        /* TABLE FOOTER */
-        .table-footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid rgba(0,200,255,0.07);}
-        .tfoot-txt{font-family:var(--mono);font-size:11px;color:var(--muted);}
-
-        /* TOAST */
-        .toast{position:fixed;bottom:22px;right:22px;padding:12px 17px;border-radius:4px;font-family:var(--mono);font-size:12.5px;display:none;z-index:9999;backdrop-filter:blur(12px);border-left:2px solid var(--cyan);background:rgba(0,14,28,0.95);color:var(--cyan);box-shadow:0 16px 40px rgba(0,0,0,0.5);letter-spacing:.04em;max-width:320px;}
-        .toast.err{border-left-color:var(--red);color:#ff8090;}
-
-        @media(max-width:900px){
-            body{padding:18px;}
-            .topbar{flex-direction:column;}
-            .topbar-right{justify-content:flex-start;}
-            .stat-strip{grid-template-columns:repeat(2,1fr);}
-            input,select{width:100%;}
-            .toolbar{flex-direction:column;align-items:flex-start;}
-        }
-        @media(max-width:500px){
-            body{padding:10px;}
-            .stat-strip{grid-template-columns:repeat(2,1fr);}
-            .main-card{padding:14px;}
-            input{min-width:0;}
-        }
-    </style>
-</head>
-<body>
-<div class="bg-layer">
-    <div class="grid-overlay"></div><div class="scanlines"></div>
-    <div class="gs gs1"></div><div class="gs gs2"></div>
+{% block content %}
+<div class="page-head">
+    <div>
+        <h1>Peers</h1>
+        <p class="page-sub">Live WireGuard peer status from the MikroTik router.</p>
+    </div>
+    <div class="page-actions">
+        <span class="live-note"><span class="dot {{ 'dot-red' if mt_error else 'dot-green' }}" id="liveDot"></span><span id="autoLabel">Auto-refresh every 5s</span></span>
+        <button class="btn btn-ghost" type="button" onclick="loadPeers(true)">Refresh</button>
+    </div>
 </div>
-<script>
-    const bg=document.querySelector('.bg-layer');
-    for(let i=0;i<8;i++){const s=document.createElement('div');s.className='stream';s.style.cssText=`left:${Math.random()*100}%;height:${Math.random()*18+10}%;animation-duration:${Math.random()*8+6}s;animation-delay:${Math.random()*12}s;`;bg.appendChild(s);}
-</script>
 
-<div class="page">
+<div class="flash error" id="mtBanner" role="alert"{% if not mt_error %} hidden{% endif %}>
+    <div class="flash-text">
+        <div class="banner-title" id="mtBannerTitle">Can't reach the MikroTik router, so live peer data isn't available.</div>
+        <div class="banner-detail" id="mtBannerDetail"{% if not mt_error %} hidden{% endif %}>{{ mt_error or '' }}</div>
+    </div>
+    <button class="btn btn-quiet btn-sm" type="button" id="mtBannerReload" onclick="location.reload()" hidden>Reload</button>
+</div>
 
-    <!-- TOPBAR -->
-    <div class="topbar">
-        <div>
-            <h1>WIREGUARD PEERS</h1>
-            <p class="page-sub">// LIVE STATUS · TRAFFIC · UPTIME · HISTORY</p>
+{% if interfaces and interfaces|length > 1 %}
+<div class="iface-bar">
+    <span class="iface-label">Interface</span>
+    {% for iface in interfaces %}
+    <a class="iface-btn {% if iface == selected_interface %}active{% endif %}"
+       href="{{ url_for('wireguard') }}?interface={{ iface }}">{{ iface }}</a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<div class="tiles">
+    <div class="tile"><div class="tile-label">Total peers</div><div class="tile-value" id="statTotal">{{ peers|length }}</div></div>
+    <div class="tile"><div class="tile-label">Online</div><div class="tile-value" id="statOnline">0</div></div>
+    <div class="tile"><div class="tile-label">Enabled</div><div class="tile-value" id="statEnabled">0</div></div>
+    <div class="tile"><div class="tile-label">Disabled</div><div class="tile-value" id="statDisabled">0</div></div>
+</div>
+
+<section class="panel peers-panel">
+    <div class="toolbar">
+        <div class="toolbar-left">
+            <input id="searchBox" type="search" placeholder="Search name, IP or key" aria-label="Search peers" oninput="filterTable()">
+            <select id="statusFilter" aria-label="Filter peers" onchange="filterTable()">
+                <option value="all">All peers</option>
+                <option value="online">Online only</option>
+                <option value="offline">Offline only</option>
+                <option value="enabled">Enabled only</option>
+                <option value="disabled">Disabled only</option>
+            </select>
         </div>
-        <div class="topbar-right">
-            <div class="auto-badge"><span class="live-dot"></span><span id="autoLabel">AUTO-REFRESH 5s</span></div>
-            <a href="{{ url_for('home') }}"><button class="btn btn-ghost" type="button">← DASHBOARD</button></a>
-            <button class="btn btn-ghost" type="button" onclick="loadPeers(true)">↺ REFRESH</button>
+        <div class="toolbar-right">
+            <button class="btn btn-quiet btn-sm" type="button" onclick="copyVisiblePeers()">Copy visible</button>
         </div>
     </div>
 
-    <!-- INTERFACE TABS -->
-    {% if interfaces and interfaces|length > 1 %}
-    <div class="iface-bar">
-        <span class="iface-label">// INTERFACE:</span>
-        {% for iface in interfaces %}
-        <a class="iface-btn {% if iface == selected_interface %}active{% endif %}"
-           href="{{ url_for('wireguard') }}?interface={{ iface }}">{{ iface }}</a>
-        {% endfor %}
+    <div class="table-shell"{% if not peers %} hidden{% endif %}>
+        <table class="peers-table">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortTable(0)">Name <span class="arr">↕</span></th>
+                    <th>Key</th>
+                    <th class="sortable" onclick="sortTable(2)">Address <span class="arr">↕</span></th>
+                    <th class="sortable" onclick="sortTable(3)">Status <span class="arr">↕</span></th>
+                    <th class="sortable" onclick="sortTable(4)">Connection <span class="arr">↕</span></th>
+                    <th>Last handshake</th>
+                    <th>Traffic RX/TX</th>
+                    <th>Last hour</th>
+                    <th>Uptime</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="peerTable">
+                {% for peer in peers %}
+                {% set pid = peer.get('peer_id','') %}
+                <tr data-pid="{{ pid }}" class="peer-row" onclick="toggleExpand('exp-{{ loop.index }}',event)">
+                    <td>
+                        <div class="peer-name">{{ peer.get("comment") or "No name" }}</div>
+                        <div class="peer-id">{{ pid }}</div>
+                    </td>
+                    <td class="key-cell" title="{{ peer.get('public-key','') }}"
+                        data-key="{{ peer.get('public-key','') }}"
+                        onclick="copyRaw(event,this.dataset.key)">
+                        {{ peer.get("public-key","")[:16] }}…
+                    </td>
+                    <td class="addr-cell">{{ peer.get("allowed-address","") }}</td>
+                    <td data-state="{% if peer.get('disabled')=='true' %}disabled{% else %}enabled{% endif %}">
+                        {% if peer.get("disabled")=="true" %}<span class="pill pill-disabled">Disabled</span>
+                        {% else %}<span class="pill pill-enabled">Enabled</span>{% endif %}
+                    </td>
+                    <td data-state="{{ peer.get('status','Offline')|lower }}">
+                        {% if peer.get("status")=="Online" %}<span class="pill pill-online">Online</span>
+                        {% elif peer.get("status")=="Unknown" %}<span class="pill pill-unknown">Unknown</span>
+                        {% else %}<span class="pill pill-offline">Offline</span>{% endif %}
+                    </td>
+                    <td class="hs-cell">{{ peer.get("last_handshake","Never") }}</td>
+                    <td class="traffic-cell">
+                        <div class="t-rx">↓ {{ peer.get("rx",0)|int|filesizeformat }}</div>
+                        <div class="t-tx">↑ {{ peer.get("tx",0)|int|filesizeformat }}</div>
+                    </td>
+                    <td>
+                        <canvas class="spark-wrap" id="spark-{{ loop.index }}"></canvas>
+                    </td>
+                    <td>
+                        {% if peer.get("status")=="Online" %}
+                        <span class="uptime-badge" data-hs="{{ peer.get('handshake_seconds',-1) }}" id="uptime-{{ loop.index }}">calculating…</span>
+                        {% else %}
+                        <span class="uptime-na">—</span>
+                        {% endif %}
+                    </td>
+                    <td onclick="event.stopPropagation()">
+                        <div class="action-col">
+                            {% if peer.get("disabled")=="true" %}
+                            <form method="POST" action="{{ url_for('enable_peer', peer_id=pid) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button class="btn btn-green btn-sm" type="submit">Enable</button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('disable_peer', peer_id=pid) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                                <button class="btn btn-quiet btn-sm" type="submit">Disable</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                <tr class="expand-row" id="exp-{{ loop.index }}">
+                    <td class="expand-cell" colspan="10">
+                        <div class="expand-inner">
+                            {% if peer.endpoint_ip %}
+                            <div class="expand-meta">
+                                <div>
+                                    <div class="expand-section-title">Endpoint</div>
+                                    <span class="expand-val mono">{{ peer.endpoint_ip }}</span>
+                                </div>
+                                {% if peer.auto_location %}
+                                <div>
+                                    <div class="expand-section-title">Detected location</div>
+                                    <span class="expand-val">{{ peer.auto_location }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                            <div class="expand-grid">
+                                <div>
+                                    <div class="expand-section-title">Online/offline history</div>
+                                    <div class="history-list">
+                                        {% set events = peer.get("events",[]) %}
+                                        {% if events %}
+                                            {% for ev in events %}
+                                            <div class="ev-entry ev-{{ ev.event }}">
+                                                {{ ev.event|capitalize }}
+                                                <span class="ev-time">{{ ev.time }}</span>
+                                            </div>
+                                            {% endfor %}
+                                        {% else %}
+                                        <div class="history-empty">No history yet</div>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="expand-section-title">Traffic, last hour</div>
+                                    <div class="chart-wrap">
+                                        <canvas id="chart-{{ loop.index }}"></canvas>
+                                    </div>
+                                </div>
+                                <div>
+                                    <div class="expand-section-title">
+                                        <span>Uptime trend</span>
+                                        <span class="range-btns">
+                                            <button type="button" class="up-range-btn active" data-days="7" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">7d</button>
+                                            <button type="button" class="up-range-btn"        data-days="30" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">30d</button>
+                                            <button type="button" class="up-range-btn"        data-days="90" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">90d</button>
+                                        </span>
+                                    </div>
+                                    <div class="chart-wrap tall">
+                                        <canvas id="uptime-chart-{{ loop.index }}"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if not peers %}
+    <div class="empty-state">
+        {% if mt_error %}
+        <div class="empty-title">No live peer data</div>
+        <div class="empty-sub">Peers appear here once the router is reachable again.</div>
+        {% else %}
+        <div class="empty-title">No peers on this interface</div>
+        <div class="empty-sub">Clients you create on the Clients page show up here.</div>
+        {% endif %}
     </div>
     {% endif %}
 
-    <!-- STAT STRIP -->
-    <div class="stat-strip">
-        <div class="stat-card s-total"><div class="stat-label">// TOTAL PEERS</div><div class="stat-val" id="statTotal">{{ peers|length }}</div></div>
-        <div class="stat-card s-online"><div class="stat-label">// ONLINE</div><div class="stat-val" id="statOnline">0</div></div>
-        <div class="stat-card s-enabled"><div class="stat-label">// ENABLED</div><div class="stat-val" id="statEnabled">0</div></div>
-        <div class="stat-card s-disabled"><div class="stat-label">// DISABLED</div><div class="stat-val" id="statDisabled">0</div></div>
+    <div class="table-footer">
+        <span class="tfoot-txt" id="visibleCount"></span>
+        <span class="tfoot-txt" id="lastRefreshed"></span>
     </div>
+</section>
+{% endblock %}
 
-    <!-- MAIN CARD -->
-    <div class="main-card">
-        <div class="toolbar">
-            <div class="toolbar-left">
-                <div class="input-shell">
-                    <span class="i-icon">⌕</span>
-                    <input id="searchBox" type="search" placeholder="Search name, IP, key..." oninput="filterTable()">
-                </div>
-                <select id="statusFilter" onchange="filterTable()">
-                    <option value="all">ALL PEERS</option>
-                    <option value="online">ONLINE ONLY</option>
-                    <option value="offline">OFFLINE ONLY</option>
-                    <option value="enabled">ENABLED ONLY</option>
-                    <option value="disabled">DISABLED ONLY</option>
-                </select>
-            </div>
-            <div class="toolbar-right">
-                <button class="btn btn-ghost btn-sm" onclick="copyVisiblePeers()">📋 COPY VISIBLE</button>
-            </div>
-        </div>
-
-        <div class="table-shell">
-            <table>
-                <thead>
-                    <tr>
-                        <th onclick="sortTable(0)">Name <span class="arr">↕</span></th>
-                        <th>Key</th>
-                        <th onclick="sortTable(2)">Address <span class="arr">↕</span></th>
-                        <th onclick="sortTable(3)">Status <span class="arr">↕</span></th>
-                        <th onclick="sortTable(4)">Connection <span class="arr">↕</span></th>
-                        <th>Last Handshake</th>
-                        <th>Traffic RX/TX</th>
-                        <th>Sparkline</th>
-                        <th>Uptime</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody id="peerTable">
-                    {% for peer in peers %}
-                    {% set pid = peer.get('peer_id','') %}
-                    <tr data-pid="{{ pid }}" class="peer-row" onclick="toggleExpand('exp-{{ loop.index }}',event)">
-                        <td>
-                            <div class="peer-name">{{ peer.get("comment") or "No name" }}</div>
-                            <div class="peer-id">{{ pid }}</div>
-                        </td>
-                        <td class="key-cell" title="{{ peer.get('public-key','') }}"
-                            data-key="{{ peer.get('public-key','') }}"
-                            onclick="copyRaw(event,this.dataset.key)">
-                            {{ peer.get("public-key","")[:16] }}…
-                        </td>
-                        <td class="addr-cell">{{ peer.get("allowed-address","") }}</td>
-                        <td data-state="{% if peer.get('disabled')=='true' %}disabled{% else %}enabled{% endif %}">
-                            {% if peer.get("disabled")=="true" %}<span class="pill pill-disabled">DISABLED</span>
-                            {% else %}<span class="pill pill-enabled">ENABLED</span>{% endif %}
-                        </td>
-                        <td data-state="{{ peer.get('status','Offline')|lower }}">
-                            {% if peer.get("status")=="Online" %}<span class="pill pill-online">ONLINE</span>
-                            {% elif peer.get("status")=="Unknown" %}<span class="pill pill-unknown">UNKNOWN</span>
-                            {% else %}<span class="pill pill-offline">OFFLINE</span>{% endif %}
-                        </td>
-                        <td class="hs-cell">{{ peer.get("last_handshake","Never") }}</td>
-                        <td class="traffic-cell">
-                            <div class="t-rx">↓ {{ peer.get("rx",0)|int|filesizeformat }}</div>
-                            <div class="t-tx">↑ {{ peer.get("tx",0)|int|filesizeformat }}</div>
-                        </td>
-                        <td>
-                            <canvas class="spark-wrap" id="spark-{{ loop.index }}"></canvas>
-                        </td>
-                        <td>
-                            {% if peer.get("status")=="Online" %}
-                            <span class="uptime-badge" data-hs="{{ peer.get('handshake_seconds',-1) }}" id="uptime-{{ loop.index }}">calculating...</span>
-                            {% else %}
-                            <span class="uptime-na">—</span>
-                            {% endif %}
-                        </td>
-                        <td onclick="event.stopPropagation()">
-                            <div class="action-col">
-                                {% if peer.get("disabled")=="true" %}
-                                <form method="POST" action="{{ url_for('enable_peer', peer_id=pid) }}">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                    <button class="btn btn-green btn-sm" type="submit">ENABLE</button>
-                                </form>
-                                {% else %}
-                                <form method="POST" action="{{ url_for('disable_peer', peer_id=pid) }}">
-                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                                    <button class="btn btn-danger btn-sm" type="submit">DISABLE</button>
-                                </form>
-                                {% endif %}
-                            </div>
-                        </td>
-                    </tr>
-                    <!-- EXPAND ROW -->
-                    <tr class="expand-row" id="exp-{{ loop.index }}">
-                        <td class="expand-cell" colspan="10">
-                            <div class="expand-inner">
-                                {% if peer.endpoint_ip %}
-                                <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid rgba(0,200,255,0.07);display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-                                    <div>
-                                        <div class="expand-section-title" style="margin-bottom:5px;">// ENDPOINT</div>
-                                        <span style="font-family:var(--mono);font-size:13px;color:var(--cyan);">{{ peer.endpoint_ip }}</span>
-                                    </div>
-                                    {% if peer.auto_location %}
-                                    <div>
-                                        <div class="expand-section-title" style="margin-bottom:5px;">// DETECTED LOCATION</div>
-                                        <span style="font-family:var(--mono);font-size:13px;color:var(--text);">🌍 {{ peer.auto_location }}</span>
-                                    </div>
-                                    {% endif %}
-                                </div>
-                                {% endif %}
-                                <div class="expand-grid">
-                                    <div>
-                                        <div class="expand-section-title">// ONLINE/OFFLINE HISTORY</div>
-                                        <div class="history-list">
-                                            {% set events = peer.get("events",[]) %}
-                                            {% if events %}
-                                                {% for ev in events %}
-                                                <div class="ev-entry ev-{{ ev.event }}">
-                                                    {{ ev.event|upper }}
-                                                    <span class="ev-time">{{ ev.time }}</span>
-                                                </div>
-                                                {% endfor %}
-                                            {% else %}
-                                            <div style="font-family:var(--mono);font-size:12px;color:var(--muted);">// No history yet</div>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="expand-section-title">// TRAFFIC HISTORY (LAST HOUR)</div>
-                                        <div class="chart-wrap">
-                                            <canvas id="chart-{{ loop.index }}"></canvas>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="expand-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-                                            <span>// UPTIME TREND</span>
-                                            <span style="display:inline-flex;gap:4px;">
-                                                <button type="button" class="up-range-btn active" data-days="7" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">7d</button>
-                                                <button type="button" class="up-range-btn"        data-days="30" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">30d</button>
-                                                <button type="button" class="up-range-btn"        data-days="90" data-row="{{ loop.index }}" onclick="setUptimeRange(this)">90d</button>
-                                            </span>
-                                        </div>
-                                        <div class="chart-wrap" style="height:110px;">
-                                            <canvas id="uptime-chart-{{ loop.index }}"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="table-footer">
-            <span class="tfoot-txt" id="visibleCount"></span>
-            <span class="tfoot-txt" id="lastRefreshed"></span>
-        </div>
-    </div>
-</div>
-
-<div id="toast" class="toast"></div>
-
+{% block scripts %}
 <script>
 // ── CSRF ──
 const CSRF = document.querySelector('meta[name="csrf-token"]').content;
@@ -427,15 +347,10 @@ function fmtBytes(b){
     return b.toFixed(i===0?0:2)+' '+u[i];
 }
 function shortKey(k){return k?k.substring(0,16)+'…':'—';}
-function showToast(msg,isErr=false){
-    const t=document.getElementById('toast');
-    t.innerText=msg;t.className='toast'+(isErr?' err':'');t.style.display='block';
-    clearTimeout(window._tt);window._tt=setTimeout(()=>{t.style.display='none';},3200);
-}
 function copyRaw(e,key){
     e.stopPropagation();
     if(!key)return;
-    navigator.clipboard.writeText(key).then(()=>showToast('// PUBLIC KEY COPIED ✓')).catch(()=>showToast('COPY FAILED',true));
+    navigator.clipboard.writeText(key).then(()=>showToast('Public key copied')).catch(()=>showToast('Copy failed',true));
 }
 
 // ── SPARKLINES ──
@@ -589,17 +504,48 @@ function toggleExpand(id,e){
 
 // ── PILLS ──
 function connPill(peer){
-    if(peer.status==='Online')return'<span class="pill pill-online">ONLINE</span>';
-    if(peer.status==='Unknown')return'<span class="pill pill-unknown">UNKNOWN</span>';
-    return'<span class="pill pill-offline">OFFLINE</span>';
+    if(peer.status==='Online')return'<span class="pill pill-online">Online</span>';
+    if(peer.status==='Unknown')return'<span class="pill pill-unknown">Unknown</span>';
+    return'<span class="pill pill-offline">Offline</span>';
 }
-function enPill(dis){return dis?'<span class="pill pill-disabled">DISABLED</span>':'<span class="pill pill-enabled">ENABLED</span>';}
+function enPill(dis){return dis?'<span class="pill pill-disabled">Disabled</span>':'<span class="pill pill-enabled">Enabled</span>';}
+
+// ── ROUTER BANNER ──
+// state: 'router' (MikroTik unreachable, /peers answered 503), 'fetch' (the
+// refresh itself failed), 'back' (router answered again but this page was
+// rendered without peers), or null (all good: hide it).
+function setPeerBanner(state,detail){
+    const banner=document.getElementById('mtBanner');
+    const dot=document.getElementById('liveDot');
+    if(dot)dot.className='dot '+((state==='router'||state==='fetch')?'dot-red':'dot-green');
+    if(!state){banner.hidden=true;return;}
+    document.getElementById('mtBannerTitle').innerText=
+        state==='router'?"Can't reach the MikroTik router, so live peer data isn't available.":
+        state==='fetch'?"Live refresh failed, so the figures below may be out of date.":
+        "The router is reachable again. Reload to see its peers.";
+    const det=document.getElementById('mtBannerDetail');
+    det.innerText=detail||'';
+    det.hidden=!detail;
+    document.getElementById('mtBannerReload').hidden=state!=='back';
+    banner.classList.toggle('error',state!=='back');
+    banner.hidden=false;
+}
 
 // ── LOAD PEERS (live refresh) ──
 function loadPeers(manual=false){
     const iface=new URLSearchParams(location.search).get('interface')||'';
     const url=iface?`/peers?interface=${iface}`:'/peers';
-    fetch(url).then(r=>r.json()).then(peers=>{
+    fetch(url).then(r=>r.json().catch(()=>null).then(body=>{
+        // /peers answers 503 {error, detail} while the router is down; a
+        // non-list body (e.g. the login page after a timeout) is a failure too.
+        if(!r.ok||!Array.isArray(body)){
+            const err=new Error((body&&body.error)||(r.ok?'Unexpected response from /peers':`HTTP ${r.status}`));
+            err.router=(r.status===503);
+            err.detail=(body&&body.detail)||'';
+            throw err;
+        }
+        return body;
+    })).then(peers=>{
         const tbody=document.getElementById('peerTable');
         let total=peers.length,online=0,enabled=0,disabled=0;
 
@@ -610,8 +556,8 @@ function loadPeers(manual=false){
             if(on)online++;if(dis)disabled++;else enabled++;
 
             const action=dis
-                ?`<form method="POST" action="/wireguard/enable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-green btn-sm" type="submit">ENABLE</button></form>`
-                :`<form method="POST" action="/wireguard/disable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-danger btn-sm" type="submit">DISABLE</button></form>`;
+                ?`<form method="POST" action="/wireguard/enable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-green btn-sm" type="submit">Enable</button></form>`
+                :`<form method="POST" action="/wireguard/disable/${peer.peer_id}"><input type="hidden" name="csrf_token" value="${CSRF}"/><button class="btn btn-quiet btn-sm" type="submit">Disable</button></form>`;
 
             const existRow=tbody.querySelector(`tr[data-pid="${peer.peer_id}"]`);
             if(existRow){
@@ -631,10 +577,17 @@ function loadPeers(manual=false){
         document.getElementById('statOnline').innerText=online;
         document.getElementById('statEnabled').innerText=enabled;
         document.getElementById('statDisabled').innerText=disabled;
-        document.getElementById('lastRefreshed').innerText='LAST SYNC: '+new Date().toLocaleTimeString();
+        document.getElementById('lastRefreshed').innerText='Last updated '+new Date().toLocaleTimeString();
+        const rendered=tbody.querySelectorAll('tr.peer-row').length;
+        setPeerBanner(peers.length&&!rendered?'back':null);
         filterTable();updateCount();
-        if(manual)showToast('// PEERS REFRESHED ✓');
-    }).catch(e=>{console.error(e);showToast('COULD NOT REACH /peers',true);});
+        if(manual)showToast('Peers refreshed');
+    }).catch(e=>{
+        console.error(e);
+        setPeerBanner(e.router?'router':'fetch',e.detail||e.message);
+        // The poll runs every 5s: the banner carries the error, toast only on a click.
+        if(manual)showToast(e.router?"Can't reach the MikroTik router":"Couldn't refresh peers",true);
+    });
 }
 
 // ── FILTER ──
@@ -665,7 +618,7 @@ function updateCount(){
     const rows=document.querySelectorAll('#peerTable tr.peer-row');
     let vis=0;rows.forEach(r=>{if(r.style.display!=='none')vis++;});
     const el=document.getElementById('visibleCount');
-    if(el)el.innerText=`SHOWING ${vis} / ${rows.length} PEERS`;
+    if(el)el.innerText=`Showing ${vis} of ${rows.length} peers`;
 }
 
 // ── SORT ──
@@ -713,8 +666,8 @@ function copyVisiblePeers(){
         const traf=c[6].innerText.trim().replace(/\n/g,' ');
         out+=`[${name}] ADDR:${addr} | STATUS:${conn} | ${traf}\n`;
     });
-    if(!out){showToast('NO VISIBLE PEERS',true);return;}
-    navigator.clipboard.writeText(out).then(()=>showToast('// VISIBLE PEERS COPIED ✓'));
+    if(!out){showToast('No visible peers',true);return;}
+    navigator.clipboard.writeText(out).then(()=>showToast('Visible peers copied'));
 }
 
 // ── INIT ──
@@ -736,8 +689,4 @@ function copyVisiblePeers(){
 
 setInterval(()=>loadPeers(false),5000);
 </script>
-<script>
-if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js');}
-</script>
-</body>
-</html>
+{% endblock %}

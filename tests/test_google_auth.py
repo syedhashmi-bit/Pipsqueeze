@@ -233,7 +233,7 @@ def test_admin_email_signs_in_as_admin(pps, client):
     page = client.get("/admin/users")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert "GOOGLE SIGN-IN" in html
+    assert "Google sign-in" in html
     assert "http://localhost/auth/google/callback" in html
     assert ADMIN_EMAIL in html and VIEWER_EMAIL in html
     assert "test-client-secret" not in html

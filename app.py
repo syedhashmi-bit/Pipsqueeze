@@ -68,6 +68,28 @@ def _csrf_error(e):
     return redirect(ref if same_origin else url_for("home"))
 
 
+def _wants_json():
+    return request.path.startswith("/api/") or request.path == "/peers" or request.is_json
+
+
+@app.errorhandler(404)
+def _not_found(e):
+    if _wants_json():
+        return jsonify({"error": "not found"}), 404
+    return render_template("error.html", code=404, title="Page not found",
+                           message="There's nothing at this address."), 404
+
+
+@app.errorhandler(500)
+def _server_error(e):
+    # Flask has already logged the traceback; show a page in the app's own
+    # look instead of Werkzeug's bare white one.
+    if _wants_json():
+        return jsonify({"error": "server error"}), 500
+    return render_template("error.html", code=500, title="Something went wrong",
+                           message="The server hit an error and logged it. Try again in a moment."), 500
+
+
 @app.after_request
 def _security_headers(resp):
     # Defense-in-depth headers. CSP intentionally permits 'unsafe-inline' for
@@ -79,10 +101,12 @@ def _security_headers(resp):
     resp.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; "
+        # cdnjs serves Leaflet (/map) and Chart.js (/wireguard); without it
+        # both were blocked and the map and peer charts rendered empty.
         "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
-        "https://unpkg.com https://nominatim.openstreetmap.org; "
+        "https://unpkg.com https://cdnjs.cloudflare.com https://nominatim.openstreetmap.org; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com "
-        "https://unpkg.com; "
+        "https://unpkg.com https://cdnjs.cloudflare.com; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
         "connect-src 'self' https://nominatim.openstreetmap.org "
@@ -474,6 +498,9 @@ def fmt_bytes(b):
             return f"{b:.2f} {unit}" if unit != "B" else f"{b} B"
         b /= 1024
     return f"{b:.2f} TB"
+
+
+app.add_template_filter(fmt_bytes, "bytes")
 
 
 def get_clients(page=1, tag=None, search=None):
@@ -1455,6 +1482,18 @@ def google_callback():
 
 
 # ─────────────────────────────────────────────
+# SETTINGS HUB
+# ─────────────────────────────────────────────
+
+@app.route("/settings")
+@login_required
+def settings_page():
+    """Links to the admin tools that used to crowd the dashboard's top bar,
+    plus the danger zone (database / full reset)."""
+    return render_template("settings.html")
+
+
+# ─────────────────────────────────────────────
 # SECURITY PAGE
 # ─────────────────────────────────────────────
 
@@ -2127,8 +2166,13 @@ def map_view():
 @login_required
 def peers_api():
     interface = request.args.get("interface", None)
-    mt = MikroTikAPI(interface=interface)
-    mt.connect(); data = mt.get_peers(); mt.disconnect()
+    try:
+        mt = MikroTikAPI(interface=interface)
+        mt.connect(); data = mt.get_peers(); mt.disconnect()
+    except Exception as e:
+        # The Peers page polls this every 5s; a router outage is a state to
+        # show, not a 500 to log.
+        return jsonify({"error": "MikroTik unreachable", "detail": str(e)}), 503
     return jsonify(data)
 
 
@@ -2136,11 +2180,19 @@ def peers_api():
 @login_required
 def wireguard():
     interface = request.args.get("interface", None)
-    mt = MikroTikAPI(interface=interface)
-    mt.connect()
-    peers      = mt.get_peers()
-    interfaces = mt.get_all_wireguard_interfaces()
-    mt.disconnect()
+    # The router being down is an expected state, not a crash: render the
+    # page empty with a banner (as the dashboard's health card does).
+    mt_error = None
+    try:
+        mt = MikroTikAPI(interface=interface)
+        mt.connect()
+        peers      = mt.get_peers()
+        interfaces = mt.get_all_wireguard_interfaces()
+        mt.disconnect()
+    except Exception as e:
+        print(f"[wireguard] MikroTik unreachable: {e}")
+        mt_error = str(e) or e.__class__.__name__
+        peers, interfaces = [], []
 
     conn = get_db_connection()
     db_clients = {r["name"]:r for r in conn.execute("SELECT * FROM clients").fetchall()}
@@ -2176,7 +2228,8 @@ def wireguard():
 
     selected_interface = interface or os.getenv("MT_WIREGUARD_INTERFACE","Test-Wireguard")
     return render_template("wireguard.html", peers=peers,
-                           interfaces=interfaces, selected_interface=selected_interface)
+                           interfaces=interfaces, selected_interface=selected_interface,
+                           mt_error=mt_error)
 
 
 @app.route("/wireguard/enable/<peer_id>", methods=["POST"])
@@ -2496,6 +2549,9 @@ def api_send_digest():
 @app.route("/reset-db", methods=["POST"])
 @admin_required
 def reset_db():
+    if request.form.get("confirm") != "RESET":
+        flash("Type RESET to confirm wiping the database.", "error")
+        return redirect(url_for("settings_page"))
     conn = get_db_connection()
     for tbl in ["clients","traffic_history","peer_events","ping_history","uptime_log"]:
         conn.execute(f"DELETE FROM {tbl}")
@@ -2508,6 +2564,9 @@ def reset_db():
 @app.route("/reset-all", methods=["POST"])
 @admin_required
 def reset_all():
+    if request.form.get("confirm") != "RESET":
+        flash("Type RESET to confirm resetting everything.", "error")
+        return redirect(url_for("settings_page"))
     try:
         mt = MikroTikAPI(); mt.connect(); mt.delete_dashboard_peers(); mt.disconnect()
     except Exception as e:

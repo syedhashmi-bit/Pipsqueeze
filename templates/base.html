@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PipSqueeze{% endblock %}</title>
+    <script>
+        // Theme before first paint, so light-mode users never see a dark flash.
+        try { if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="apple-touch-icon" href="/static/logo.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0a121c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="PipSqueeze">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/static/css/transitions.css">
+    <script src="/static/js/transitions.js" defer></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+{# Which nav item a page belongs to, by Flask endpoint. #}
+{% set nav_section = {
+    'home': 'clients',
+    'wireguard': 'peers',
+    'map_view': 'map',
+    'weekly_report': 'reports',
+    'security_page': 'security',
+    'settings_page': 'settings', 'notifications_page': 'settings',
+    'admin_users_page': 'settings', 'admin_users_enroll': 'settings',
+    'admin_api_keys_page': 'settings', 'provision_manage': 'settings',
+    'import_view': 'settings', 'all_logs': 'settings',
+}.get(request.endpoint, '') %}
+{% if session.get('logged_in') %}
+<header class="appbar">
+    <div class="appbar-inner">
+        <a class="brand" href="{{ url_for('home') }}">
+            <img src="/static/logo.png" alt="">
+            <span>PipSqueeze</span>
+        </a>
+        <nav class="mainnav" id="mainNav" aria-label="Main">
+            {% for key, label, endpoint in [
+                ('clients', 'Clients', 'home'),
+                ('peers', 'Peers', 'wireguard'),
+                ('map', 'Map', 'map_view'),
+                ('reports', 'Reports', 'weekly_report'),
+                ('security', 'Security', 'security_page'),
+                ('settings', 'Settings', 'settings_page'),
+            ] %}
+            <a class="navlink{% if nav_section == key %} active{% endif %}" href="{{ url_for(endpoint) }}"
+               {% if nav_section == key %}aria-current="page"{% endif %}>{{ label }}</a>
+            {% endfor %}
+        </nav>
+        <div class="appbar-right">
+            {% block appbar_extra %}{% endblock %}
+            <button class="iconbtn" type="button" onclick="pipToggleTheme()" title="Switch light/dark theme" aria-label="Switch light/dark theme">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+            </button>
+            {% if session.get('username') %}
+            <span class="who">{{ session.username }}<span class="role{% if session.role != 'admin' %} viewer{% endif %}">{{ session.role or 'admin' }}</span></span>
+            {% endif %}
+            <a class="btn btn-quiet btn-sm" href="{{ url_for('logout') }}">Log out</a>
+            <button class="iconbtn navtoggle" type="button" onclick="document.getElementById('mainNav').classList.toggle('open')" aria-label="Menu">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
+        </div>
+    </div>
+</header>
+{% endif %}
+
+<main class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flashes">
+        {% for category, message in messages %}
+        {% set low = message|lower %}
+        <div class="flash{% if category == 'error' or 'error' in low or 'failed' in low or 'required' in low %} error{% endif %}" role="status">
+            <span class="flash-text">{{ message }}</span>
+            <button class="flash-close" type="button" onclick="this.parentElement.remove()" aria-label="Dismiss">×</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+
+{% block modals %}{% endblock %}
+
+<div id="toast" class="toast" role="status"></div>
+
+<script>
+function pipToggleTheme() {
+    const root = document.documentElement;
+    const light = root.dataset.theme !== 'light';
+    if (light) root.dataset.theme = 'light'; else delete root.dataset.theme;
+    try { localStorage.setItem('theme', light ? 'light' : 'dark'); } catch (e) {}
+}
+// Default toast; pages may define their own showToast (transitions.js
+// upgrades whichever is in place at DOMContentLoaded).
+function showToast(msg, isErr) {
+    const t = document.getElementById('toast');
+    t.innerText = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.style.display = 'block';
+    clearTimeout(window._tt); window._tt = setTimeout(() => { t.style.display = 'none'; }, 3600);
+}
+</script>
+{% block scripts %}{% endblock %}
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js'); }
+</script>
+</body>
+</html>

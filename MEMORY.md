@@ -37,6 +37,19 @@ This file tracks what has been built, what was fixed, and important decisions ma
 
 - Under systemd stdout is a pipe, so Python block-buffered every `print()` (`[monitor]`, `[google]`, `[vault]`, `[firewall]`); they only showed in `journalctl` when a worker exited. `app.py` now calls `sys.stdout.reconfigure(line_buffering=True)` right after its imports. It covers every module's prints and doesn't depend on the unit file (no `PYTHONUNBUFFERED` needed). Test: `test_log_lines_reach_a_pipe_while_the_process_runs` (fails against the previous commit).
 
+### 2026-10-29 — UI redesign on a shared base template (+ three live bugs)
+
+- New `templates/base.html` + `static/css/app.css`: one app bar/nav (Clients, Peers, Map, Reports, Security, Settings) on every admin page, light/dark toggle for all pages (`html[data-theme]`, localStorage `theme`, set before first paint), flash messages rendered for every page (the dashboard used to never show them), shared `#toast`. All 12 admin templates converted (`{% extends "base.html" %}`); login/portal/provision/blocked stay standalone.
+- Removed the "generated" look: animated grid/scanlines/glow blobs/data streams, text glows, gradient hairlines, `// ` prefixes, ALL-CAPS labels, emoji icons. Monospace only for data. Contrast: `--muted` #3d6070 (2.9:1) → #62879a (4.9:1); light theme `--muted` #5d7182, yellow #8a6400.
+- Dashboard: full-width client list; New client form moved into a dialog (N shortcut); row actions = Download, Enable/Disable, ⋯ menu (Edit, Rename, Clone, Copy/Rotate portal link, Regenerate keys, Delete) with fixed-position popover; one row of status tiles; bytes via new `bytes` Jinja filter; notification bell dropped (duplicated the expiry banner); viewers no longer see admin-only controls.
+- New `/settings` hub (admin tools that crowded the top bar) with a danger zone: `/reset-db` and `/reset-all` now require `confirm=RESET` server-side.
+- Styled 404/500 pages (`error.html`; JSON for `/api/*` and `/peers`).
+- Bug: `/wireguard` 500'd whenever MikroTik was unreachable (no try around connect) → now renders with an error banner; `/peers` returns 503 JSON and the page shows the banner instead of toasting every 5s.
+- Bug (live since the CSP hardening pass): Leaflet and Chart.js load from `cdnjs.cloudflare.com`, which the CSP didn't allow → `/map` blank and peer charts empty. Added cdnjs to script-src/style-src. Then CARTO tiles turned out to need an API key → switched to OpenStreetMap tiles (+ `referrerPolicy`, attribution, CSS invert for dark theme).
+- Bug: the service worker proxied every GET including other origins; inside the worker fetch runs under the worker's CSP (connect-src lacks Google Fonts/CDNs), so fonts, Leaflet and Chart.js failed on every page after the first visit. SW now ignores cross-origin requests; `CACHE_VERSION` → 2026-10-29a.
+- Tests: `tests/test_pages.py` (8, fresh-process): one nav with the right active section on every page, Peers survives a router outage, styled 404/500, typed reset confirmation, flashes on the dashboard, admin vs viewer controls + create-form field contract, CSP allows every external host templates load, SW leaves other origins alone. Old suites' strings updated (Keyboard shortcuts, Enroll 2FA, Google sign-in).
+- Process note: page conversions were split between two helper agents; both hit the usage limit but had finished their files — each page was verified with a render check and a JS-id check afterwards.
+
 ### Same day — monitor thread ran once per gunicorn worker
 
 - The live unit runs `gunicorn -w 3` without `--preload`, so all three workers imported `app.py` and each started `_monitor_loop()` with its own `_prev_traffic`/`_prev_states`. Every 30s the same delta was added to `total_rx`/`total_tx` three times. `uptime_log`/`ping_history`/`traffic_history` got 3 rows. Connect/disconnect/expiry/quota alerts, expiry reminders, the weekly digest and auto-cleanup ran three times. On each restart every worker re-sent a "connected" alert per online peer.
@@ -180,6 +193,10 @@ This file tracks what has been built, what was fixed, and important decisions ma
 | Provision client-name suffix had ~18 bits of entropy (`token_urlsafe(3)` → 4 chars) | Switched to `secrets.token_hex(4)` (32 bits). |
 | CSV export allowed Excel formula injection | Cells starting with `=,+,-,@,\t,\r` are now prefixed with a single quote. |
 | Backup ZIP wrote decrypted Discord/SMTP/Telegram credentials into `notification_settings.json` | JSON now redacts the three secret fields; encrypted values still live in the DB row. |
+| `/map` blank and peer charts empty — Leaflet/Chart.js from cdnjs blocked by CSP; CARTO tiles need an API key | cdnjs added to CSP; OSM tiles with referrerPolicy + attribution |
+| Web fonts (and CDN libs) failed after the first visit | Service worker proxied cross-origin GETs under its own CSP; now ignores other origins |
+| `/wireguard` 500 when MikroTik unreachable | try/except → banner; `/peers` 503 JSON |
+| Dashboard never displayed flash messages | `base.html` renders flashes on every page |
 | Monitor thread ran once per gunicorn worker (`-w 3`) — traffic totals, history rows and alerts multiplied | `_claim_monitor_lock()`: `fcntl.flock` on `.monitor.lock`, only the holder starts `_monitor_loop()`; replacement worker takes over if the owner dies |
 
 ---
