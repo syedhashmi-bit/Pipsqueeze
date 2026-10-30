@@ -16,7 +16,7 @@ PipSqueeze — a self-hosted WireGuard VPN management dashboard, like Tailscale 
 - **Service**: `pipsqueeze` (gunicorn systemd unit; created by `install.sh`). Legacy/existing deployments may still use the old unit name `vpn-dashboard` — check with `systemctl list-units | grep -E 'pipsqueeze|vpn-dashboard'` and use whichever exists.
 - **Project path**: `/var/www/pipsqueeze`
 - **VPS**: any Ubuntu host (domain, hosting provider, and VM size are deployer's choice)
-- **Install modes** (`install.sh` asks first): 1 public server + domain → gunicorn `127.0.0.1:<port>` behind nginx + certbot, Google optional; 2 home/office LAN, no domain → gunicorn `0.0.0.0:<port>`, `COOKIE_INSECURE=1`, optional ufw rule; 3 this machine only → `127.0.0.1:<port>`, `COOKIE_INSECURE=1`. Google sign-in is only offered in mode 1 (Google rejects plain-http and bare-IP callbacks). Test the installer with the sandbox pattern in MEMORY.md, never by running it on this host
+- **Install modes** (`install.sh` asks first): 1 public server + domain → gunicorn `127.0.0.1:<port>` behind nginx + certbot, Google optional; 2 home/office LAN, no domain → gunicorn `0.0.0.0:<port>`, `COOKIE_INSECURE=1`, optional ufw rule; 3 this machine only → `127.0.0.1:<port>`, `COOKIE_INSECURE=1`. Google sign-in is only offered in mode 1 (Google rejects plain-http and bare-IP callbacks). Test the installer with the sandbox or fresh-Ubuntu chroot recipes in MEMORY.md, never by running it on this host. `install.sh` writes every answer through `envq()`; the app loads `.env` with `load_dotenv(interpolate=False)` in both `mikrotik_api.py` and `app.py` — keep both, or passwords containing `${…}` break
 - **LAN subnet**: configurable via `LAN_SUBNET` env var (default `192.168.88.0/24` — MikroTik factory default)
 - **VPN subnet**: `10.10.0.0/24` (clients get `.2` to `.254`)
 - **Python venv**: `/var/www/pipsqueeze/venv`
@@ -71,20 +71,22 @@ git push                                           # push to main (HTTPS, authed
 | `static/css/app.css` | Design tokens (dark + light) and shared components: `.btn*`, `.panel*`, `.chip`, `.tiles/.tile`, tables, form fields, `.segmented`, `.modal*`, `.menu`, `.toast`, `.empty-state` |
 | `templates/settings.html` | Settings hub (`/settings`): links to Alerts, Users, API keys, Provisioning, Import, Activity log, exports; danger zone (typed `RESET`) |
 | `templates/error.html` | Styled 404 / 500 pages |
-| `templates/login.html` | Login page (standalone, not on base.html): Google button, or password + TOTP when Google is off |
+| `templates/public_base.html` | Shared layout for the public pages (login, portal, provision, provision_error, blocked): same head as base.html, theme toggle, logo + one centred card — **no app bar or nav** (never extend base.html from a public page) |
+| `templates/login.html` | Login page (extends public_base.html): Google button, or password + TOTP when Google is off. The error box must stay `class="err"` (lockout countdown JS and tests use it) |
 | `templates/index.html` | Clients dashboard — full-width client list with ⋯ row menus, New client / edit / rename / clone dialogs, status tiles |
 | `templates/wireguard.html` | Live peers page — ping, uptime, traffic sparklines, expand rows |
 | `templates/security.html` | Login audit trail, locked IPs, IP whitelist info |
 | `templates/notifications.html` | Discord/Email/Telegram alert channel settings |
 | `templates/report.html` | Weekly digest — top users, uptime leaders, expiry warnings |
 | `templates/map.html` | World map of client locations (Leaflet.js + OpenStreetMap) |
-| `templates/portal.html` | Client self-serve portal (token-based, no login required) |
+| `templates/portal.html` | Client self-serve portal (token-based, no login required; extends public_base.html) |
 | `templates/logs.html` | Full paginated activity log |
 | `templates/blocked.html` | IP whitelist rejection page (403) |
 | `clients/` | WireGuard `.conf` files per client — **never read** |
 | `qr_codes/` | QR code PNGs per client — **never read** |
 | `vpn_dashboard.db` | SQLite DB — **never read** (contains credentials) |
 | `.env` | All secrets — **never read** |
+| `tools/recount_traffic.py` | One-off repair: recompute `total_rx`/`total_tx` from `traffic_history` (dry run by default, `--apply` backs up first, only lowers). For totals multi-counted before the monitor lock |
 | `CONTEXT.md` | Architecture decisions, background, known quirks |
 | `MEMORY.md` | Running log of features built, bugs fixed, and pending work |
 
@@ -222,4 +224,6 @@ WEEKLY_DIGEST_DAY=monday
 - Map tiles are OpenStreetMap's (`tile.openstreetmap.org`) with `referrerPolicy: 'strict-origin-when-cross-origin'` and visible attribution — OSM blocks Referer-less requests and the site-wide Referrer-Policy is `same-origin`. CARTO basemaps need an API key now
 - VSCode flags Jinja2 `{{ }}` inside `<script>` tags as JS errors — these are false positives, code works fine
 - Geocoding uses OpenStreetMap Nominatim (browser-side JS, no API key, 1 req/sec rate limit)
+- `traffic_history.rx`/`tx` are raw MikroTik counter samples, not deltas — usage over a period is the sum of positive increases between consecutive rows (`LAG()` window, see `build_weekly_digest`), never `SUM(rx)`
+- Tests never touch the live checkout, `.env`, DB or router: `conftest.live_url` and `test_http_smoke` import this checkout into a temp dir with `load_dotenv` stubbed and `MT_HOST=127.0.0.1:9`. Browser tests: `--browser-channel chrome` uses the system Chrome
 - After any significant session, update `MEMORY.md` with what was changed
