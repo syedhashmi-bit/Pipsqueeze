@@ -21,7 +21,9 @@ import google_auth
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
-load_dotenv()
+# No ${VAR} expansion: install.sh quotes values verbatim, and a password
+# containing ${...} must reach the app unchanged.
+load_dotenv(interpolate=False)
 
 app = Flask(__name__)
 application = app

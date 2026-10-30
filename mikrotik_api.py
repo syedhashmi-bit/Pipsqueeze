@@ -3,7 +3,7 @@ import re
 import routeros_api
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(interpolate=False)  # see app.py
 
 
 class MikroTikAPI:

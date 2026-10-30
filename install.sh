@@ -51,15 +51,27 @@ die()   { printf '\n%s✗ %s%s\n' "$C_RED" "$1" "$C_RESET" >&2; exit 1; }
 # looping forever on a required answer that can never arrive.
 no_input() { die "Input ended — run ./install.sh from an interactive terminal."; }
 
+# Answers end up in .env (see envq). The one value python-dotenv can't hold is
+# one that needs quotes (space, #, quote) and also ends in a backslash: the
+# backslash escapes the closing quote and the parse runs into the next line.
+ENV_NEEDS_QUOTES='[[:space:]#'\''"]'
+env_unsafe() { [[ "$1" =~ $ENV_NEEDS_QUOTES && "$1" == *\\ ]]; }
+ENV_UNSAFE_MSG="A value with spaces, # or quotes can't end with a backslash (\\). Try again."
+
 # ask VAR "Prompt" "default"  → reads into VAR, falls back to default
 ask() {
   local __var="$1" __prompt="$2" __default="${3:-}" __reply=""
-  if [[ -n "$__default" ]]; then
-    read -r -p "   $__prompt [$__default]: " __reply || [[ -n "$__reply" ]] || no_input
-    __reply="${__reply:-$__default}"
-  else
-    read -r -p "   $__prompt: " __reply || [[ -n "$__reply" ]] || no_input
-  fi
+  while true; do
+    __reply=""
+    if [[ -n "$__default" ]]; then
+      read -r -p "   $__prompt [$__default]: " __reply || [[ -n "$__reply" ]] || no_input
+      __reply="${__reply:-$__default}"
+    else
+      read -r -p "   $__prompt: " __reply || [[ -n "$__reply" ]] || no_input
+    fi
+    env_unsafe "$__reply" || break
+    warn "$ENV_UNSAFE_MSG"
+  done
   printf -v "$__var" '%s' "$__reply"
 }
 
@@ -76,9 +88,16 @@ ask_required() {
 ask_secret() {
   local __reply=""
   while true; do
+    __reply=""
     read -r -s -p "   $2: " __reply || [[ -n "$__reply" ]] || no_input; echo
-    [[ -n "$__reply" ]] && { printf -v "$1" '%s' "$__reply"; break; }
-    warn "This value is required."
+    if [[ -z "$__reply" ]]; then
+      warn "This value is required."
+    elif env_unsafe "$__reply"; then
+      warn "$ENV_UNSAFE_MSG"
+    else
+      printf -v "$1" '%s' "$__reply"
+      break
+    fi
   done
 }
 
@@ -108,10 +127,28 @@ ask_port() {
   done
 }
 
+# envq VALUE → VALUE as written to .env. Plain values stay bare; anything with a
+# space, # or quote is single-quoted with \ and ' escaped (python-dotenv undoes
+# both), so such passwords survive. The app loads .env with interpolate=False,
+# so ${...} survives too.
+envq() {
+  local v="$1"
+  if [[ "$v" =~ $ENV_NEEDS_QUOTES ]]; then
+    v="${v//\\/\\\\}"
+    v="${v//\'/\\\'}"
+    printf "'%s'" "$v"
+  else
+    printf '%s' "$v"
+  fi
+}
+
+# env_set KEY → .env gives KEY a non-empty value (quoted or not)
+env_set() { grep -Eq "^$1=['\"]?[^'\"[:space:]#]" .env; }
+
 # google_on → .env has everything Sign in with Google needs (mirrors google_auth.is_configured)
 google_on() {
-  grep -Eq '^GOOGLE_CLIENT_ID=.+' .env && grep -Eq '^GOOGLE_CLIENT_SECRET=.+' .env \
-    && grep -Eq '^GOOGLE_(ADMIN|VIEWER)_EMAILS=.+' .env
+  env_set GOOGLE_CLIENT_ID && env_set GOOGLE_CLIENT_SECRET \
+    && { env_set GOOGLE_ADMIN_EMAILS || env_set GOOGLE_VIEWER_EMAILS; }
 }
 
 # ── Banner ───────────────────────────────────────────────────────────────────
@@ -182,11 +219,13 @@ PYV_OK="$(python3 -c 'import sys; print(1 if sys.version_info[:2] >= (3,10) else
 [[ "$PYV_OK" == "1" ]] || die "Python 3.10+ required (found $PYV)."
 ok "Python $PYV"
 
-# python3-venv is needed to create the virtualenv
-if ! python3 -c 'import venv' 2>/dev/null; then
-  warn "python3-venv module is missing."
+# python3-venv is needed to create the virtualenv. Check for ensurepip, not
+# venv: stock Ubuntu ships the venv module without it, so `import venv` passes
+# and `python3 -m venv` then fails.
+if ! python3 -c 'import ensurepip' 2>/dev/null; then
+  warn "python3-venv is missing."
   if yesno "Install python3-venv now (apt)?"; then
-    $SUDO apt update && $SUDO apt install -y python3-venv
+    { $SUDO apt update && $SUDO apt install -y python3-venv; } || die "Couldn't install python3-venv."
   else
     die "Cannot continue without python3-venv."
   fi
@@ -207,8 +246,12 @@ fi
 if [[ ${#NEED_PKGS[@]} -gt 0 ]]; then
   warn "Missing packages: ${NEED_PKGS[*]}"
   if yesno "Install them now (apt)?"; then
-    $SUDO apt update && $SUDO apt install -y "${NEED_PKGS[@]}"
-    ok "Installed ${NEED_PKGS[*]}"
+    # Inside `a && b`, set -e ignores a failing apt, so check it explicitly.
+    if $SUDO apt update && $SUDO apt install -y "${NEED_PKGS[@]}"; then
+      ok "Installed ${NEED_PKGS[*]}"
+    else
+      die "apt couldn't install ${NEED_PKGS[*]}. Fix the error above and re-run ./install.sh."
+    fi
   else
     if ! command -v wg >/dev/null 2>&1; then
       warn "Without wireguard-tools PipSqueeze can't generate client keys, so creating clients will fail."
@@ -321,22 +364,22 @@ if [[ "$WRITE_ENV" == "1" ]]; then
 
 # ── App ──
 SECRET_KEY=$SECRET_KEY
-APP_USERNAME=$APP_USERNAME
-APP_PASSWORD=$APP_PASSWORD
+APP_USERNAME=$(envq "$APP_USERNAME")
+APP_PASSWORD=$(envq "$APP_PASSWORD")
 TOTP_SECRET=$TOTP_SECRET
 
 # ── WireGuard server ──
-SERVER_PUBLIC_KEY=$SERVER_PUBLIC_KEY
-SERVER_IP=$SERVER_IP
-SERVER_PORT=$SERVER_PORT
-CLIENT_DNS=$CLIENT_DNS
+SERVER_PUBLIC_KEY=$(envq "$SERVER_PUBLIC_KEY")
+SERVER_IP=$(envq "$SERVER_IP")
+SERVER_PORT=$(envq "$SERVER_PORT")
+CLIENT_DNS=$(envq "$CLIENT_DNS")
 
 # ── MikroTik RouterOS API ──
-MT_HOST=$MT_HOST
-MT_USERNAME=$MT_USERNAME
-MT_PASSWORD=$MT_PASSWORD
-MT_PORT=$MT_PORT
-MT_WIREGUARD_INTERFACE=$MT_WIREGUARD_INTERFACE
+MT_HOST=$(envq "$MT_HOST")
+MT_USERNAME=$(envq "$MT_USERNAME")
+MT_PASSWORD=$(envq "$MT_PASSWORD")
+MT_PORT=$(envq "$MT_PORT")
+MT_WIREGUARD_INTERFACE=$(envq "$MT_WIREGUARD_INTERFACE")
 
 # ── Security (optional — defaults shown) ──
 MAX_LOGIN_ATTEMPTS=5
@@ -345,10 +388,10 @@ SESSION_TIMEOUT_MIN=30
 IP_WHITELIST=
 
 # ── Google sign-in (optional — blank = password + 2FA only) ──
-GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
-GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
-GOOGLE_ADMIN_EMAILS=$GOOGLE_ADMIN_EMAILS
-GOOGLE_VIEWER_EMAILS=$GOOGLE_VIEWER_EMAILS
+GOOGLE_CLIENT_ID=$(envq "$GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET=$(envq "$GOOGLE_CLIENT_SECRET")
+GOOGLE_ADMIN_EMAILS=$(envq "$GOOGLE_ADMIN_EMAILS")
+GOOGLE_VIEWER_EMAILS=$(envq "$GOOGLE_VIEWER_EMAILS")
 ${HTTP_BLOCK}
 # ── Notifications / cleanup (optional) ──
 WEEKLY_DIGEST_DAY=monday
@@ -374,7 +417,7 @@ echo
 "$VENV_PY" - <<'PY'
 import os, pyotp
 from dotenv import load_dotenv
-load_dotenv(".env")
+load_dotenv(".env", interpolate=False)
 secret = os.getenv("TOTP_SECRET")
 user   = os.getenv("APP_USERNAME", "admin")
 if not secret:
