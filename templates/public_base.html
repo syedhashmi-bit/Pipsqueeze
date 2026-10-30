@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PipSqueeze{% endblock %}</title>
+    <script>
+        // Theme before first paint, so light-mode users never see a dark flash.
+        try { if (localStorage.getItem('theme') === 'light') document.documentElement.dataset.theme = 'light'; } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="apple-touch-icon" href="/static/logo.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#0a121c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="PipSqueeze">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <link rel="stylesheet" href="/static/css/app.css">
+    <link rel="stylesheet" href="/static/css/transitions.css">
+    <script src="/static/js/transitions.js" defer></script>
+    {% block head %}{% endblock %}
+</head>
+{# Layout for the pages people see without logging in (sign-in, client
+   portal, provisioning links, the IP-whitelist 403): no app bar or nav,
+   just the logo over one centred card. Admin pages extend base.html. #}
+<body class="public">
+<button class="iconbtn public-theme" type="button" onclick="pipToggleTheme()" title="Switch light/dark theme" aria-label="Switch light/dark theme">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>
+</button>
+
+<main class="public-main">
+    <div class="public-wrap{% block wrap_class %}{% endblock %}">
+        <div class="public-brand">
+            <img src="/static/logo.png" alt="">
+            <span>PipSqueeze</span>
+        </div>
+        <div class="public-card">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</main>
+
+<script>
+function pipToggleTheme() {
+    const root = document.documentElement;
+    const light = root.dataset.theme !== 'light';
+    if (light) root.dataset.theme = 'light'; else delete root.dataset.theme;
+    try { localStorage.setItem('theme', light ? 'light' : 'dark'); } catch (e) {}
+}
+</script>
+{% block scripts %}{% endblock %}
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/sw.js'); }
+</script>
+</body>
+</html>

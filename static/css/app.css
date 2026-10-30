@@ -392,3 +392,107 @@ select option { background: var(--surface-2); color: var(--text); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ── Public pages ─────────────────────────────────────────────────────── */
+/* Sign-in, client portal, provisioning links and the IP-whitelist 403, laid
+ * out by templates/public_base.html: no app bar, the logo over one card. */
+.public-main {
+    min-height: 100vh; min-height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 64px 16px 48px;
+}
+.public-wrap { width: 100%; max-width: 420px; }
+.public-wrap.wide { max-width: 780px; }
+.public-theme { position: absolute; top: 14px; right: 16px; }
+.public-brand {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    margin-bottom: 18px; color: var(--text-strong);
+    font-size: var(--fs-xl); font-weight: 700; letter-spacing: 0.02em;
+}
+.public-brand img { width: 40px; height: 40px; object-fit: contain; display: block; }
+.public-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px;
+}
+.public-head { margin-bottom: 22px; }
+.public-head:last-child { margin-bottom: 0; }
+.public-head h1 {
+    font-size: var(--fs-2xl); font-weight: 700; line-height: 1.15;
+    color: var(--text-strong); overflow-wrap: anywhere;
+}
+.public-sub { margin-top: 4px; color: var(--muted-mid); }
+.public-center { text-align: center; }
+.public-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
+.public-icon {
+    width: 48px; height: 48px; margin: 0 auto 14px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--cyan-dim); color: var(--cyan);
+}
+.public-icon svg { width: 24px; height: 24px; }
+.public-icon.bad { background: var(--red-dim); color: var(--red); }
+@media (max-width: 480px) {
+    .public-main { padding-top: 60px; }
+    .public-card { padding: 22px 18px; }
+}
+
+/* Larger buttons for the one main action on a public page */
+.btn-lg { padding: 11px 18px; font-size: var(--fs-md); }
+.btn-google { background: var(--surface-2); border-color: var(--border-lit); color: var(--text-strong); }
+.btn-google:hover { background: var(--cyan-dim); border-color: var(--cyan); }
+.btn-google img { width: 18px; height: 18px; display: block; }
+.is-locked { opacity: .45; pointer-events: none; }
+.code-input { font-family: var(--mono); font-size: var(--fs-xl); letter-spacing: 0.3em; text-align: center; }
+
+/* Inline notices. login.html's error box keeps class="err": the lockout
+ * countdown and the UI tests select it. */
+.callout, .public-card .err {
+    display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px;
+    padding: 11px 14px; border-radius: var(--radius-sm);
+    border: 1px solid var(--border-lit); border-left-width: 3px;
+    background: var(--cyan-dim); color: var(--text);
+}
+.callout svg, .public-card .err svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+.callout strong, .public-card .err strong { color: var(--text-strong); }
+.callout-warn { border-color: rgba(255, 201, 64, 0.32); border-left-color: var(--yellow); background: var(--yellow-dim); }
+.callout-warn svg { color: var(--yellow); }
+.callout-error, .public-card .err { border-color: rgba(255, 77, 106, 0.32); border-left-color: var(--red); background: var(--red-dim); }
+.callout-error svg, .public-card .err svg { color: var(--red); }
+
+/* Label / value list (client details) */
+.facts { border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.facts > div {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+}
+.facts > div:last-child { border-bottom: none; }
+.facts dt { color: var(--muted-mid); font-size: var(--fs-sm); font-weight: 600; flex-shrink: 0; }
+.facts dd { color: var(--text-strong); text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.facts dd.mono { font-size: var(--fs-sm); }
+
+.codeblock {
+    font-family: var(--mono); font-size: var(--fs-sm); color: var(--text);
+    background: var(--inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 10px 12px; margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* WireGuard config: download + QR (portal and provisioning pages). Flex, not
+ * grid, so a hidden QR panel (image missing) leaves no gap behind. */
+.config-grid { display: flex; gap: 26px; align-items: flex-start; }
+.config-main { flex: 1; min-width: 0; }
+.config-actions { margin-top: 18px; }
+.config-actions > :last-child { margin-bottom: 0; }
+.btn-block + .helper { margin-top: 8px; }
+.qr-panel {
+    flex: none; width: 240px; text-align: center; padding: 16px;
+    border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--inset);
+}
+.qr-panel h2 { font-size: var(--fs-md); font-weight: 700; color: var(--text-strong); }
+.qr-panel p { font-size: var(--fs-sm); color: var(--muted-mid); margin-top: 2px; }
+.qr-panel img {
+    display: block; width: 200px; max-width: 100%; height: auto; margin: 14px auto 0;
+    border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+@media (max-width: 700px) {
+    .config-grid { flex-direction: column; align-items: stretch; gap: 20px; }
+    .qr-panel { width: auto; }
+}

@@ -198,3 +198,104 @@ def test_service_worker_leaves_other_origins_alone():
     handler = sw.split("addEventListener('fetch'", 1)[1]
     guard = handler.index("url.origin !== self.location.origin")
     assert guard < handler.index("respondWith"), "origin check must come before any respondWith"
+
+
+# ── Public pages (templates/public_base.html) ────────────────────────────────
+
+def test_public_pages_render_without_the_app_chrome(tmp_path):
+    out = _run(tmp_path, setup=r"""
+import os
+A._wg_keypair = lambda: ("cHJpdmF0ZS1rZXk=", "cHVibGljLWtleQ==")  # no `wg` binary needed
+db = sqlite3.connect("vpn_dashboard.db")
+db.execute("INSERT INTO clients (name, ip, portal_token, created_at) VALUES ('demo', '10.10.0.2', 'tok-demo', '2026-01-01')")
+db.execute("INSERT INTO clients (name, ip, portal_token, created_at) VALUES ('noconf', '10.10.0.3', 'tok-noconf', '2026-01-01')")
+db.execute("INSERT INTO provision_tokens (token, label, created_at) VALUES ('ptok', 'Alex laptop', '2026-01-01')")
+db.commit(); db.close()
+os.makedirs("clients", exist_ok=True)
+open("clients/demo.conf", "w").write("[Interface]\n")
+""", body=r"""
+def page(path):
+    r = c.get(path); h = r.get_data(as_text=True)
+    return {
+        "status": r.status_code,
+        "app_css": 'href="/static/css/app.css"' in h,
+        "public": 'class="public-card"' in h,
+        "chrome": 'class="appbar"' in h or 'id="mainNav"' in h or "Log out" in h,
+        "old_bg": "scanlines" in h or 'class="bg-layer"' in h,
+        "download": 'href="/portal/' in h and '/download"' in h,
+        "qr": 'src="/portal/' in h and '/qr"' in h,
+        "no_conf": "Config file not available" in h,
+        "used": "This link has been used" in h,
+        "ip_hint": "IP_WHITELIST=127.0.0.1" in h,
+    }
+out["login"] = page("/login")
+out["portal"] = page("/portal/tok-demo")
+out["portal_noconf"] = page("/portal/tok-noconf")
+out["provision"] = page("/provision/ptok")
+out["provision_again"] = page("/provision/ptok")
+out["provision_bad"] = page("/provision/no-such-token")
+A.IP_WHITELIST_RAW = "203.0.113.5"
+out["blocked"] = page("/login")
+""")
+    expected_status = {"login": 200, "portal": 200, "portal_noconf": 200, "provision": 200,
+                       "provision_again": 410, "provision_bad": 410, "blocked": 403}
+    for name, got in out.items():
+        assert got["status"] == expected_status[name], (name, got["status"])
+        assert got["app_css"] and got["public"], name
+        assert not got["chrome"], name
+        assert not got["old_bg"], name
+    assert out["portal"]["download"] and out["portal"]["qr"] and not out["portal"]["no_conf"]
+    assert out["portal_noconf"]["no_conf"] and not out["portal_noconf"]["download"]
+    assert out["provision"]["download"] and out["provision"]["qr"] and out["provision"]["used"]
+    assert out["blocked"]["ip_hint"]
+
+
+def test_login_form_errors_flashes_and_lockout(tmp_path):
+    out = _run(tmp_path, r"""
+from datetime import timedelta
+h = c.get("/login").get_data(as_text=True)
+form = h.split('<form method="post"', 1)[1].split("</form>", 1)[0]
+out["fields"] = sorted(re.findall(r'name="([a-z_]+)"', form))
+out["submits"] = form.count('type="submit"')
+out["csrf_meta"] = 'name="csrf-token"' in h
+out["no_error"] = 'class="err"' not in h
+
+r = c.post("/login", data={"csrf_token": csrf("/login"), "username": "admin",
+                           "password": "wrong", "code": "000000"})
+h = r.get_data(as_text=True)
+out["bad_password"] = [r.status_code, bool(re.search(r'class="err"[^>]*>.*?Invalid username or password', h, re.S))]
+
+# Session expiry and CSRF failures flash, then redirect here.
+with c.session_transaction() as s:
+    s["_flashes"] = [("message", "Session expired. Please log in again.")]
+h = c.get("/login").get_data(as_text=True)
+out["flash"] = bool(re.search(r'class="flash"[^>]*>\s*<span class="flash-text">Session expired', h))
+
+db = sqlite3.connect("vpn_dashboard.db")
+db.execute("DELETE FROM login_attempts")
+db.execute("INSERT INTO login_attempts (ip, attempts, locked_until, last_attempt) VALUES ('127.0.0.1', 5, ?, ?)",
+           ((datetime.utcnow() + timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S"),
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")))
+db.commit(); db.close()
+h = c.get("/login").get_data(as_text=True)
+out["locked"] = {
+    "notice": bool(re.search(r'class="err"[^>]*>.*?Too many failed attempts.*?<strong[^>]*>10 minute', h, re.S)),
+    "form_off": '<form method="post" class="is-locked"' in h,
+    "countdown": "document.querySelector('.err strong')" in h,
+}
+""")
+    assert out["fields"] == ["code", "csrf_token", "password", "username"]
+    assert out["submits"] == 1 and out["csrf_meta"] and out["no_error"]
+    assert out["bad_password"] == [200, True]
+    assert out["flash"]
+    assert out["locked"] == {"notice": True, "form_off": True, "countdown": True}
+
+
+def test_public_templates_use_tokens_not_hex_colours():
+    # Hex colours break the light theme; public pages use app.css tokens.
+    tdir = os.path.join(REPO, "templates")
+    for name in ["login.html", "portal.html", "provision.html", "provision_error.html", "blocked.html"]:
+        html = open(os.path.join(tdir, name)).read()
+        assert '{% extends "public_base.html" %}' in html, name
+        assert "<style" not in html, name
+        assert not re.findall(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b", html), name

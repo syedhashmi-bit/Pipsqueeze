@@ -166,7 +166,7 @@ def _db(sql, *args):
 def test_login_page_is_google_only(client):
     html = client.get("/login").get_data(as_text=True)
     assert 'href="/auth/google"' in html
-    assert "SIGN IN WITH GOOGLE" in html
+    assert "Sign in with Google" in html
     assert 'name="password"' not in html
     assert 'name="code"' not in html
     assert '<form method="post"' not in html
@@ -320,7 +320,7 @@ def test_not_configured_falls_back_to_password_login(pps, client, monkeypatch):
     monkeypatch.setattr(pps, "_google", None)
     assert _error_code(client.get("/auth/google")) == "not_configured"
     html = client.get("/login").get_data(as_text=True)
-    assert "SIGN IN WITH GOOGLE" not in html
+    assert "Sign in with Google" not in html
     assert 'name="password"' in html and 'name="code"' in html
     # With Google off, password + TOTP is how you get back in.
     r = _password_login(client)

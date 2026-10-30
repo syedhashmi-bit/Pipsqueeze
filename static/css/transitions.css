@@ -4,8 +4,11 @@
 
 /* Cross-document MPA View Transitions: same-origin same-document navigations
    morph through an automatic root crossfade. Browsers without support ignore
-   the rule entirely. */
-@view-transition { navigation: auto; }
+   the rule entirely. Only opted into without a reduced-motion preference: the
+   API doesn't skip the transition by itself (it only drops our animation). */
+@media (prefers-reduced-motion: no-preference) {
+    @view-transition { navigation: auto; }
+}
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -101,8 +104,8 @@ button:not(:disabled):active,
 a, a:visited { transition: color .2s, opacity .2s; }
 
 /* Respect prefers-reduced-motion. Disables every animation/transition added
-   by this file; the View Transitions API also honors this OS-level setting
-   natively, so cross-page nav becomes a hard cut. */
+   by this file; cross-page nav is a hard cut because @view-transition above
+   is only declared without the preference. */
 @media (prefers-reduced-motion: reduce) {
     ::view-transition-old(root),
     ::view-transition-new(root) {

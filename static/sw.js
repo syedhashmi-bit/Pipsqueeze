@@ -1,6 +1,6 @@
 // PipSqueeze service worker.
 // Bump CACHE_VERSION on every release so old assets get cleaned up.
-const CACHE_VERSION = '2026-10-29a';
+const CACHE_VERSION = '2026-10-30b';
 const CACHE = `pipsqueeze-${CACHE_VERSION}`;
 const PRECACHE = ['/static/logo.png', '/static/manifest.json'];
 
