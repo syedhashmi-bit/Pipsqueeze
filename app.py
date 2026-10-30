@@ -764,10 +764,21 @@ def build_weekly_digest():
     soon      = (datetime.utcnow() + timedelta(days=7)).strftime("%Y-%m-%d")
     conn      = get_db_connection()
 
+    # traffic_history holds raw counter samples, not deltas: a week's usage is
+    # the sum of the counters' increases between consecutive samples (the
+    # monitor's max(0, delta) rule). Summing rx itself added up every sample.
     top_users = conn.execute("""
-        SELECT client, SUM(rx) as week_rx, SUM(tx) as week_tx, SUM(rx+tx) as week_total
-        FROM traffic_history WHERE recorded_at >= ?
-        GROUP BY client ORDER BY week_total DESC LIMIT 10
+        WITH steps AS (
+            SELECT client,
+                   rx - LAG(rx) OVER w AS drx,
+                   tx - LAG(tx) OVER w AS dtx
+            FROM traffic_history WHERE recorded_at >= ?
+            WINDOW w AS (PARTITION BY client ORDER BY id)
+        )
+        SELECT client, COALESCE(SUM(MAX(drx, 0)), 0) as week_rx,
+               COALESCE(SUM(MAX(dtx, 0)), 0) as week_tx,
+               COALESCE(SUM(MAX(drx, 0) + MAX(dtx, 0)), 0) as week_total
+        FROM steps GROUP BY client ORDER BY week_total DESC LIMIT 10
     """, (since,)).fetchall()
 
     events = conn.execute("""
