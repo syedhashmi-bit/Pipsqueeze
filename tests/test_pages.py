@@ -49,9 +49,10 @@ ENV = {
 DROP = {"GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_ADMIN_EMAILS", "GOOGLE_VIEWER_EMAILS"}
 
 
-def _run(tmp_path, body, setup=""):
+def _run(tmp_path, body, setup="", extra_env=None):
     env = {k: v for k, v in os.environ.items() if k not in DROP}
     env.update(ENV)
+    env.update(extra_env or {})
     script = HARNESS.format(setup=setup, body=body)
     r = subprocess.run([sys.executable, "-I", "-c", script, REPO], cwd=tmp_path, env=env,
                        capture_output=True, text=True, timeout=90)

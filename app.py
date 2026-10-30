@@ -25,10 +25,38 @@ load_dotenv()
 
 app = Flask(__name__)
 application = app
-# Trust X-Forwarded-* from exactly one proxy hop (nginx).
-# Without this, get_client_ip() honors a client-supplied X-Forwarded-For,
-# letting an attacker forge IPs for the whitelist / rate-limit / audit log.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+# Trust X-Forwarded-* from exactly one proxy hop (nginx), and only when the
+# request actually comes from that proxy. A LAN install binds gunicorn to
+# 0.0.0.0 with no nginx in front, and there a browser could put any address in
+# X-Forwarded-For to forge its IP for the whitelist / lockout / audit log.
+# TRUSTED_PROXIES: comma-separated IPs or CIDRs (default: nginx on this box).
+try:
+    TRUSTED_PROXIES = [ipaddress.ip_network(p.strip(), strict=False)
+                       for p in os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1").split(",")
+                       if p.strip()]
+except ValueError as e:
+    raise RuntimeError(f"TRUSTED_PROXIES is invalid: {e}; refusing to start.")
+
+
+def _from_trusted_proxy(addr):
+    try:
+        ip = ipaddress.ip_address(addr or "")
+    except ValueError:
+        return False
+    return any(ip in net for net in TRUSTED_PROXIES)
+
+
+def _trusted_proxy_fix(wsgi_app):
+    fixed = ProxyFix(wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    def middleware(environ, start_response):
+        if _from_trusted_proxy(environ.get("REMOTE_ADDR")):
+            return fixed(environ, start_response)
+        return wsgi_app(environ, start_response)
+    return middleware
+
+
+app.wsgi_app = _trusted_proxy_fix(app.wsgi_app)
 app.secret_key = os.getenv("SECRET_KEY")
 if not app.secret_key:
     raise RuntimeError("SECRET_KEY is not set; refusing to start.")
@@ -1121,8 +1149,10 @@ def _run_auto_cleanup(days: int):
 # ─────────────────────────────────────────────
 
 def get_client_ip():
-    return (request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or request.remote_addr or "unknown")
+    # remote_addr is already the address nginx saw (ProxyFix, trusted proxies
+    # only). Never read X-Forwarded-For here: nginx appends to it, so its first
+    # entry is whatever the browser chose to send.
+    return request.remote_addr or "unknown"
 
 
 def get_ip_whitelist():
