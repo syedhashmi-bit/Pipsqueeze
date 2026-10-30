@@ -78,7 +78,7 @@ cd /var/www/pipsqueeze
 ./install.sh
 ```
 
-The guided installer handles the venv, secrets, `.env`, the 2FA QR (drawn right in your terminal), and optionally the systemd service, nginx, and HTTPS. It's interactive and safe to re-run. Set up the [MikroTik side](#step-4--set-up-mikrotik) first, then jump to [Installation](#installation) for the full walkthrough or per-step details.
+The guided installer first asks where PipSqueeze will run — a **public server with a domain** (nginx + HTTPS), a machine on your **home or office network** with no domain (`http://<LAN IP>:<port>`), or **this machine only** — then handles the venv, secrets, `.env`, the 2FA QR (drawn right in your terminal), the systemd service, and (public servers) nginx and HTTPS. It's interactive and safe to re-run. Set up the [MikroTik side](#step-4--set-up-mikrotik) first, then jump to [Installation](#installation) for the full walkthrough or per-step details.
 
 ---
 
@@ -133,11 +133,11 @@ Before you begin, make sure you have:
 
 - A **MikroTik router** (running RouterOS 7.x) with a WireGuard interface already configured
 - A **VPS or server** running Ubuntu 20.04 or later (2 GB RAM minimum recommended)
-- A **domain name** with an A record pointing to your VPS IP
 - **Python 3.10+** on the server (`python3 --version` to check)
-- **nginx** — `apt install nginx`
-- **Certbot** for free HTTPS — `apt install certbot python3-certbot-nginx`
-- **WireGuard tools** on the server — `apt install wireguard-tools`
+- **WireGuard tools** on the server — `apt install wireguard-tools` (generates client keys)
+- For a **public install** only: a **domain name** with an A record pointing to your server, **nginx** (`apt install nginx`) and **Certbot** for free HTTPS (`apt install certbot python3-certbot-nginx`). Sign in with Google also needs this.
+
+No domain? The dashboard only needs to reach your router's API, so it runs fine on a home server or Raspberry Pi on your LAN — pick option 2 in the installer and open it at `http://<its LAN IP>:<port>` (login is password + 2FA).
 
 ---
 
@@ -145,7 +145,15 @@ Before you begin, make sure you have:
 
 ### Quick install (recommended)
 
-PipSqueeze ships with a guided installer that walks you through every step — prerequisites, virtualenv, secret generation, `.env`, the 2FA QR code (rendered right in your terminal), and optionally the systemd service, nginx, and HTTPS.
+PipSqueeze ships with a guided installer. It starts by asking where PipSqueeze will run:
+
+| Choice | Opens at | What the installer sets up | Login |
+|--------|----------|----------------------------|-------|
+| 1 — Public server with a domain | `https://your-domain` | gunicorn on `127.0.0.1:<port>`, nginx site, Let's Encrypt certificate | Google (optional) or password + 2FA |
+| 2 — Home/office network, no domain | `http://<LAN IP>:<port>` | gunicorn on `0.0.0.0:<port>`, `COOKIE_INSECURE=1`, optional ufw rule for your LAN | password + 2FA |
+| 3 — This machine only | `http://127.0.0.1:<port>` | gunicorn on `127.0.0.1:<port>`, `COOKIE_INSECURE=1` | password + 2FA |
+
+Then it walks you through the rest — prerequisites, virtualenv, secret generation, `.env`, the 2FA QR code (rendered right in your terminal) and the systemd service. Google sign-in is only offered for a public install: Google won't send users back to a plain-`http` address or a bare IP.
 
 ```bash
 git clone https://github.com/syedhashmi-bit/Pipsqueeze.git /var/www/pipsqueeze
@@ -436,7 +444,8 @@ All configuration lives in `.env`. Copy `.env.example` to get started.
 | `LOCKOUT_MINUTES` | `15` | Lockout duration in minutes |
 | `SESSION_TIMEOUT_MIN` | `30` | Inactivity timeout before auto-logout |
 | `IP_WHITELIST` | *(allow all)* | Comma-separated IPs allowed to access the dashboard. Blank = no restriction |
-| `COOKIE_INSECURE` | unset | Set to `1` only when running locally over plain HTTP (test harness, dev). In production leave unset so cookies are `Secure` |
+| `COOKIE_INSECURE` | unset | Set to `1` when the dashboard is served over plain HTTP (LAN / this-machine installs, test harness) — otherwise the browser drops the login cookie. Behind HTTPS leave it unset so cookies are `Secure` |
+| `TRUSTED_PROXIES` | `127.0.0.1,::1` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` / `-Proto` / `-Host` headers are trusted. The default fits nginx on the same box; set it if your proxy runs elsewhere (e.g. a Docker network). Requests from anywhere else are taken at their socket address, so a browser can't fake its IP |
 
 ### Optional — Google sign-in
 See [Sign in with Google](#optional--sign-in-with-google). All four unset = password + 2FA only; once set, Google is the only way in.

@@ -16,6 +16,7 @@ PipSqueeze — a self-hosted WireGuard VPN management dashboard, like Tailscale 
 - **Service**: `pipsqueeze` (gunicorn systemd unit; created by `install.sh`). Legacy/existing deployments may still use the old unit name `vpn-dashboard` — check with `systemctl list-units | grep -E 'pipsqueeze|vpn-dashboard'` and use whichever exists.
 - **Project path**: `/var/www/pipsqueeze`
 - **VPS**: any Ubuntu host (domain, hosting provider, and VM size are deployer's choice)
+- **Install modes** (`install.sh` asks first): 1 public server + domain → gunicorn `127.0.0.1:<port>` behind nginx + certbot, Google optional; 2 home/office LAN, no domain → gunicorn `0.0.0.0:<port>`, `COOKIE_INSECURE=1`, optional ufw rule; 3 this machine only → `127.0.0.1:<port>`, `COOKIE_INSECURE=1`. Google sign-in is only offered in mode 1 (Google rejects plain-http and bare-IP callbacks). Test the installer with the sandbox pattern in MEMORY.md, never by running it on this host
 - **LAN subnet**: configurable via `LAN_SUBNET` env var (default `192.168.88.0/24` — MikroTik factory default)
 - **VPN subnet**: `10.10.0.0/24` (clients get `.2` to `.254`)
 - **Python venv**: `/var/www/pipsqueeze/venv`
@@ -127,6 +128,7 @@ Each client has a unique `portal_token`. Clients visit `/portal/<token>` to down
 - Rate limiting: `MAX_LOGIN_ATTEMPTS` failed attempts trigger lockout for `LOCKOUT_MINUTES`
 - Session timeout: `SESSION_TIMEOUT_MIN` inactivity → auto-logout
 - IP whitelist: `IP_WHITELIST` env var (comma-separated); blank = allow all
+- Client IP: `get_client_ip()` returns `request.remote_addr` only — **never read `X-Forwarded-For` directly** (nginx appends to it, so its first entry is whatever the browser sent; reading it let anyone fake their IP past the whitelist/lockout). `_trusted_proxy_fix()` applies `ProxyFix(x_for=1, x_proto=1, x_host=1)` only when the socket peer is in `TRUSTED_PROXIES` (default `127.0.0.1,::1`), so a LAN install with gunicorn on `0.0.0.0` and no nginx can't be fooled either
 - Google sign-in (optional): `/auth/google` → `/auth/google/callback`. Access = `GOOGLE_ADMIN_EMAILS` / `GOOGLE_VIEWER_EMAILS` in `.env`; Google users get **no** `admin_users` row (session `auth_source="google"`, `username` = email) and `session_source_error()` re-checks the allowlist on every request in `login_required`/`admin_required`. No TOTP prompt for Google users. **While Google is on (`_google is not None`) it is the only login**: `/login` renders just the button, a password POST is refused before credentials are checked, and non-Google sessions are cleared (`?error=password_off`). With Google unconfigured (or Authlib missing) the password + TOTP form is the login, so clearing `GOOGLE_CLIENT_ID` + restart is the recovery path. `APP_USERNAME`/`APP_PASSWORD`/`TOTP_SECRET` are only required at startup while `_google is None` (check sits just before `init_db()`); with Google on they may be absent and `init_db()` seeds no default admin — never reintroduce an `admin`/`changeme` fallback. Refused accounts count toward the IP lockout. Pass `aud` in `claims_options` — Authlib skips the audience check otherwise
 - All security events logged to `login_audit` table
 
