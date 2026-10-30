@@ -7,7 +7,9 @@ Two layers of tests:
 Browser-less tests using Flask's `test_client`. Cover every P0/P1/P2 change:
 CSRF protection, session-cookie flags, Fernet encryption at rest, ipapi.co
 geolocation, service-worker versioning, import flow, API keys, auto-cleanup
-helper, the keyboard cheatsheet modal, and uptime-history range clamping.
+helper, the keyboard cheatsheet modal, and uptime-history range clamping. The app is imported from this checkout
+into a temp dir with a throwaway DB made by `init_db()`, `load_dotenv` stubbed
+(no `.env` is read) and MikroTik pointed at a closed port.
 
 ```bash
 source venv/bin/activate
@@ -59,16 +61,27 @@ source venv/bin/activate
 playwright install chromium
 ```
 
-Then run:
+Then run (or skip `playwright install` and use the system Chrome with
+`--browser-channel chrome`):
 
 ```bash
 pytest tests/test_ui_smoke.py -v
 ```
 
-The `live_url` fixture (in `conftest.py`) spawns an isolated test gunicorn on
-port 5050 with a copy of `vpn_dashboard.db`, deterministic admin credentials,
-and `COOKIE_INSECURE=1` so cookies survive over plain HTTP. Tests never touch
-the production gunicorn or its DB.
+The `live_url` fixture (in `conftest.py`) starts the app from this checkout on a
+free port, in a temp dir with a throwaway DB created by `init_db()`, no `.env`
+(load_dotenv is stubbed), MikroTik pointed at a closed port, Google sign-in off,
+deterministic admin credentials, and `COOKIE_INSECURE=1` so cookies survive over
+plain HTTP. Tests never touch the production gunicorn, its DB, its settings or
+the real router. (Earlier versions copied the live DB and loaded the live `.env`,
+which pointed the test instance's monitor at the real MikroTik.)
+
+## Other offline suites
+
+- `test_pages.py` — shared layout, error pages, CSP coverage, public pages.
+- `test_client_ip.py` — a browser can't fake its IP through `X-Forwarded-For`.
+- `test_installer_env.py` — answers `install.sh` writes into `.env` read back unchanged.
+- `test_recount_traffic.py` — `tools/recount_traffic.py` and the weekly report's usage numbers.
 
 ## Running everything
 

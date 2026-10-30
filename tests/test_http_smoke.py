@@ -4,84 +4,57 @@ Browser-less smoke tests using Flask's test_client.
 Validates every change made in the P0/P1/P2 batch without needing chromium
 system deps. Run with:  pytest tests/test_http_smoke.py -v
 
-These tests run against an in-process app instance with a deterministic
-config; they do NOT touch the production DB or production gunicorn.
+These tests run against an in-process app from this checkout, in a temp
+dir with a throwaway DB and no .env; they do NOT touch the production DB,
+its settings, the real router or production gunicorn.
 """
 
 import json
 import os
 import re
 import sqlite3
-import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
 import pyotp
 import pytest
-from werkzeug.security import generate_password_hash
 
+from tests.conftest import GOOGLE_ENV, ISOLATED_ENV, TEST_PASS, TEST_USER
 
-PROJECT = "/var/www/pipsqueeze"
-TEST_USER  = "pwtest_admin"
-TEST_PASS  = "pwtest_pass_secure_xyz"
-TEST_TOTP  = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEST_TOTP = ISOLATED_ENV["TOTP_SECRET"]
 
 
 @pytest.fixture(scope="module")
 def test_app(tmp_path_factory, monkeypatch_module):
-    """Build a fully-isolated test app instance with its own DB."""
-    db = tmp_path_factory.mktemp("pps_http") / "vpn_dashboard.db"
-    src = f"{PROJECT}/vpn_dashboard.db"
-    if os.path.exists(src):
-        shutil.copy(src, db)
+    """In-process app from this checkout, in a temp dir: a throwaway DB made by
+    init_db() (seeding TEST_USER as admin), no .env read, MikroTik pointed at a
+    closed port, Google sign-in off."""
+    mp = monkeypatch_module
+    work = tmp_path_factory.mktemp("pps_http")
+    for k in GOOGLE_ENV:
+        mp.delenv(k, raising=False)
+    for k, v in ISOLATED_ENV.items():
+        mp.setenv(k, v)
+    import dotenv
+    mp.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
+    mp.chdir(work)
+    mp.syspath_prepend(REPO)
 
-    # Seed a deterministic test admin
-    conn = sqlite3.connect(db)
-    conn.execute(
-        "INSERT OR REPLACE INTO admin_users (username, password_hash, role, created_at) "
-        "VALUES (?,?,?,?)",
-        (TEST_USER, generate_password_hash(TEST_PASS), "admin", "2026-01-01T00:00:00"),
-    )
-    conn.execute("DELETE FROM login_attempts")
-    conn.commit()
-    conn.close()
+    # Drop any cached modules so they pick up the new env and cwd
+    for m in ("app", "notifications", "vault", "mikrotik_api", "google_auth"):
+        sys.modules.pop(m, None)
 
-    # Set env BEFORE app import
-    monkeypatch_module.setenv("COOKIE_INSECURE",   "1")
-    monkeypatch_module.setenv("APP_USERNAME",      TEST_USER)
-    monkeypatch_module.setenv("APP_PASSWORD",      TEST_PASS)
-    monkeypatch_module.setenv("TOTP_SECRET",       TEST_TOTP)
-    monkeypatch_module.setenv("SECRET_KEY",        "x" * 64)
-    monkeypatch_module.setenv("AUTO_CLEANUP_DAYS", "0")
-    monkeypatch_module.setenv("IP_WHITELIST",      "")
-
-    # Patch sqlite to redirect the bare-name 'vpn_dashboard.db' to our temp DB
-    import sqlite3 as _sq
-    _orig = _sq.connect
-    def _redir(path, *a, **kw):
-        if path == "vpn_dashboard.db":
-            path = str(db)
-        return _orig(path, *a, **kw)
-    _sq.connect = _redir
-
-    import sys
-    if PROJECT not in sys.path:
-        sys.path.insert(0, PROJECT)
-    os.chdir(PROJECT)
-
-    # Drop any cached modules so they pick up the new env
-    for m in ("app", "notifications", "vault", "mikrotik_api"):
-        if m in sys.modules:
-            del sys.modules[m]
-
-    import notifications, vault
-    notifications.DB_FILE = str(db)
-    vault.DB_FILE = str(db)
-    from app import app as flask_app
+    import app as app_mod
+    import notifications
+    import vault
+    # Absolute paths, so the in-process monitor thread keeps using this DB
+    # after the module's cwd is restored.
+    app_mod.DB_FILE = notifications.DB_FILE = vault.DB_FILE = str(work / "vpn_dashboard.db")
+    flask_app = app_mod.app
     flask_app.testing = True
     yield flask_app
-
-    _sq.connect = _orig
 
 
 @pytest.fixture(scope="module")
@@ -186,7 +159,7 @@ def test_p0_vault_roundtrip_and_at_rest(test_app):
 # ─────────────────────────────────────────────
 
 def test_p1_memory_md_no_bcrypt_claim():
-    text = Path(f"{PROJECT}/MEMORY.md").read_text()
+    text = Path(f"{REPO}/MEMORY.md").read_text()
     # Should no longer claim bcrypt; should mention Werkzeug or scrypt
     assert "bcrypt-hashed" not in text
 
@@ -196,7 +169,7 @@ def test_p1_memory_md_no_bcrypt_claim():
 # ─────────────────────────────────────────────
 
 def test_p1_geolocate_uses_ipapi_co():
-    src = Path(f"{PROJECT}/app.py").read_text()
+    src = Path(f"{REPO}/app.py").read_text()
     assert "ipapi.co" in src
     assert "http://ip-api.com" not in src
     # Should still skip private IPs
@@ -212,7 +185,7 @@ def test_p1_geolocate_uses_ipapi_co():
 # ─────────────────────────────────────────────
 
 def test_p1_sw_has_versioned_cache():
-    sw = Path(f"{PROJECT}/static/sw.js").read_text()
+    sw = Path(f"{REPO}/static/sw.js").read_text()
     assert "CACHE_VERSION" in sw
     assert "pipsqueeze-${CACHE_VERSION}" in sw
     # Old eternal-cache strategy is gone
