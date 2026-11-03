@@ -11,6 +11,7 @@ qr_codes/
 keys/
 *.conf
 *.png
+!docs/screenshots/*.png
 
 # Python
 venv/
