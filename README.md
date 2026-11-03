@@ -84,17 +84,19 @@ The guided installer first asks where PipSqueeze will run — a **public server 
 
 ## Screenshots
 
-### Login Page
-<img width="1012" height="1035" alt="Login" src="https://github.com/user-attachments/assets/fc31140b-f2b5-4ba0-a3b9-ddc08f1469eb" />
+Captured from a throwaway local instance with demo data: fake clients and keys, RFC 5737 documentation addresses, and `vpn.example.com` as the endpoint.
 
-### Dashboard
-<img width="962" height="1250" alt="Dashboard" src="https://github.com/user-attachments/assets/d773d671-a36c-4a26-b170-c232fe97b84f" />
+### Sign in
+<img alt="Sign-in page: username, password and two-factor code" src="docs/screenshots/login.png" />
 
-### WireGuard Peers
-<img width="996" height="321" alt="Peers" src="https://github.com/user-attachments/assets/af27bbb9-36d3-4c60-b52c-390234521752" />
+### Clients
+<img alt="Clients dashboard: router and host status tiles, tag filters and the client list" src="docs/screenshots/dashboard.png" />
 
-### QR Code Generation
-<img width="711" height="1023" alt="QR Code" src="https://github.com/user-attachments/assets/ed99bd4d-655c-4af3-bd9a-a02ad7c78b57" />
+### Peers
+<img alt="Live peers from the MikroTik: status, last handshake, traffic and last-hour sparklines" src="docs/screenshots/peers.png" />
+
+### New client
+<img alt="A newly created client: its config file, QR code for the WireGuard app, public key and portal link" src="docs/screenshots/new-client.png" />
 
 ---
 

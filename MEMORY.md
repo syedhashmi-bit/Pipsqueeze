@@ -4,6 +4,12 @@ This file tracks what has been built, what was fixed, and important decisions ma
 
 ---
 
+### 2026-11-03 — README screenshots recaptured from demo data
+
+- The four README images were GitHub attachments from the old UI. The QR one had its private key and QR scribbled over by hand (it no longer decoded, but that was luck, not a method). They are now committed under `docs/screenshots/` and the README points there.
+- **Capture recipe:** launch the app the way `tests/conftest.py` does (`load_dotenv` stubbed, temp cwd + DB, test credentials, `MT_HOST=127.0.0.1:9`), and swap `mikrotik_api.MikroTikAPI` for a fake that returns demo peers before `import app`. Seed `clients`, `traffic_history`, `uptime_log`, `ping_history` and `peer_events` in the temp DB. Then drive the system Chrome with Python Playwright (`executable_path='/opt/google/chrome/chrome', chromium_sandbox=False`), using `--host-resolver-rules=MAP vpn.example.com 127.0.0.1:<port>` so the portal link reads like a real deployment.
+- **Gotcha that matters for any isolated run:** `/qr/<client>` and the download routes check `os.path.exists("qr_codes/…")` against the **cwd** but `send_file()` resolves the same relative path against the **app folder**, i.e. the live checkout. In an isolated instance, a demo client sharing a name with a real client would serve the real QR code (with its private key). Pin `app.send_file` to the temp dir in the launcher. Production is unaffected, since cwd is the app folder there.
+
 ### 2026-10-30 (later) — Installer on a fresh Ubuntu, .env quoting, traffic recount, isolated smoke tests
 
 - **Fresh-server test** of `install.sh` on Ubuntu 24.04.5 (ubuntu-base tarball, checksum-verified) as a non-root sudo user. LXD is installed on this host but was never initialised — don't `lxd init` (it adds a bridge + firewall rules on a shared box). Recipe: extract the rootfs into the scratchpad; enter with `unshare -m -p -f --propagation private`, re-bind the rootfs `suid` (scratch /tmp is `nosuid`, which breaks sudo), mount /dev /proc /sys and a tmpfs /run, `chroot`; `policy-rc.d` → 101 so packages don't start daemons; a `/usr/local/bin/systemctl` stand-in that logs and runs `pipsqueeze.service`'s `ExecStart` as `User=` (PID namespace, so it can't touch host processes). Preinstall what a stock server has (python3, git, iproute2, sudo, tzdata, ca-certificates). Network is shared — the host's ufw keeps test ports private.
